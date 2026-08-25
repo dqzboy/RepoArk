@@ -18,14 +18,5 @@ const epLocale = computed(() => epMap[currentLocale()] || zhCn)
 </script>
 
 <style>
-html,
-body,
-#app {
-  height: 100%;
-  margin: 0;
-}
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
-}
+html, body, #app { min-height: 100%; margin: 0; }
 </style>

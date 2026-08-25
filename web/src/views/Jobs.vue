@@ -1,9 +1,9 @@
 <template>
   <el-card class="ops-card">
     <template #header>
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap">
+      <div class="ops-jobs-head">
         <span class="ops-card__title"><el-icon class="ops-card__icon"><List /></el-icon>{{ t('jobs.title') }}</span>
-        <el-radio-group v-model="filterPlatform" size="small" @change="load">
+        <el-radio-group v-model="filterPlatform" size="small" class="ops-jobs-filter">
           <el-radio-button value="">{{ t('jobs.allPlatforms') }}</el-radio-button>
           <el-radio-button v-for="p in PLATFORMS" :key="p.code" :value="p.code">
             {{ t('platform.' + p.code) }}
@@ -15,8 +15,8 @@
       <el-table-column prop="id" :label="t('jobs.id')" width="80" />
       <el-table-column :label="t('jobs.platform')" width="120">
         <template #default="{ row }">
-          <span class="ops-pill" :class="platformPillClass(row.platform)">
-            <i class="ops-platform-dot" :style="{ background: dotColor(row.platform) }" />
+          <span class="ops-pill ops-pill--platform">
+            <span class="ops-platform-index">{{ platformIndex(row.platform) }}</span>
             {{ t('platform.' + (row.platform || 'github')) }}
           </span>
         </template>
@@ -40,7 +40,7 @@
       </template>
     </el-table>
 
-    <el-dialog v-model="dialog" :title="t('jobs.logTitle')" width="72%">
+    <el-dialog v-model="dialog" :title="t('jobs.logTitle')" width="min(900px, calc(100vw - 32px))">
       <pre class="ops-log">{{ activeLog }}</pre>
     </el-dialog>
   </el-card>
@@ -60,17 +60,9 @@ const activeLog = ref('')
 const loading = ref(true)
 const filterPlatform = ref('')
 
-function dotColor(code) {
-  if (code === 'github') return '#7c5cff'
-  if (code === 'gitcode') return '#22b8ff'
-  if (code === 'gitee') return '#ff6b35'
-  return '#888'
-}
-function platformPillClass(code) {
-  if (code === 'github') return 'ops-pill--platform-github'
-  if (code === 'gitcode') return 'ops-pill--platform-gitcode'
-  if (code === 'gitee') return 'ops-pill--platform-gitee'
-  return ''
+function platformIndex(code) {
+  const index = PLATFORMS.findIndex((platform) => platform.code === code)
+  return String(index >= 0 ? index + 1 : 0).padStart(2, '0')
 }
 function statusText(s) {
   return s === 'success' ? t('status.success') : s === 'failed' ? t('status.failed') : s === 'running' ? t('status.running') : t('status.unknown')
@@ -103,37 +95,31 @@ watch(filterPlatform, load)
 </script>
 
 <style scoped>
-.ops-platform-dot {
-  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
-  margin-right: 6px; vertical-align: 0;
-  box-shadow: 0 0 5px currentColor;
+.ops-jobs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.ops-pill {
-  display: inline-flex; align-items: center;
-  font-family: var(--font-display); font-size: 12px;
-  padding: 3px 10px; border-radius: 999px;
+.ops-jobs-filter {
+  max-width: 100%;
+  overflow-x: auto;
 }
-.ops-pill--platform-github { background: rgba(124,92,255,0.14); color: #7c5cff; }
-.ops-pill--platform-gitcode { background: rgba(34,184,255,0.14); color: #22b8ff; }
-.ops-pill--platform-gitee { background: rgba(255,107,53,0.16); color: #ff6b35; }
-
-.ops-pill--success { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
-.ops-pill--failed  { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
-.ops-pill--running { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
-.ops-pill--idle    { background: var(--surface-2); color: var(--text-muted); }
-
-.ops-log {
-  margin: 0;
-  padding: 14px;
-  background: #0d1117;
-  color: #e6edf3;
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  max-height: 60vh;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
+.ops-pill--platform {
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+.ops-platform-index {
+  color: var(--accent-strong);
+  font: 700 9px/1 var(--font-display);
+  letter-spacing: .05em;
+}
+@media (max-width: 720px) {
+  .ops-jobs-head,
+  .ops-jobs-filter {
+    width: 100%;
+  }
 }
 </style>

@@ -147,5 +147,12 @@ onMounted(load)
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+@media (max-width: 520px) {
+  .ops-users-head .el-button {
+    width: 100%;
+  }
 }
 </style>

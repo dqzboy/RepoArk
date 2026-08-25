@@ -7,6 +7,10 @@ export default {
     online: 'SYSTEM ONLINE',
     repoTooltip: 'GitHub 仓库 · {repo}'
   },
+  layout: {
+    skip: '跳到主要内容', navigation: '控制导航', archiveNode: '归档节点',
+    controlRoom: 'Archive Control Room', toggleTheme: '切换明暗主题'
+  },
   platform: {
     label: '平台',
     tab: '选择备份平台',
@@ -14,7 +18,7 @@ export default {
     gitcode: 'GitCode',
     gitee: 'Gitee',
     disabledHint: '当前平台尚未启用，请勾选「启用平台」并保存后再使用',
-    hostLabel: '{platform} 仓库'
+    hostLabel: '{platform} 仓库', ready: '已启用', offline: '未启用'
   },
   nav: {
     dashboard: '仪表盘',
@@ -58,7 +62,10 @@ export default {
     passwordPh: '密码',
     submit: '登 录',
     hint: '默认账号 admin / admin · 请尽快到「用户中心」修改',
-    error: '登录失败'
+    error: '登录失败', accessPoint: '受控归档入口 / 01', heroTitle: '把三处代码资产，收进同一座档案库。',
+    heroDesc: '统一管理 GitHub、GitCode 与 Gitee 的备份配置、执行记录和自动调度。', archiveReady: '归档通道',
+    securityNote: '访问凭据仅用于受控的 HTTPS Git 会话。', credentials: '身份凭据', welcome: '进入控制室',
+    formDesc: '验证管理员身份后查看备份节点状态。'
   },
   dashboard: {
     title: '配置概览',
@@ -81,7 +88,17 @@ export default {
     distTitle: '任务状态分布',
     totalJobs: '任务总数',
     recentTitle: '近期活动',
-    noJobs: '暂无任务记录'
+    noJobs: '暂无任务记录', noJobsDesc: '执行一次备份后，任务轨迹会显示在这里。',
+    commandCenter: '三平台归档控制台 / Live', heroTitle: '一屏掌握全部代码备份节点。',
+    heroDesc: '同时查看三个平台的启用状态、仓库目标、任务质量与最新执行轨迹，不再逐个平台切换确认。',
+    runNow: '立即执行备份', reviewConfig: '检查配置', archiveHealth: 'Archive health', healthGood: '运行健康',
+    healthWatch: '需要关注', healthSetup: '等待配置', metrics: '归档关键指标', enabledPlatforms: '已启用平台',
+    enabledNote: '支持 GitHub / GitCode / Gitee', successRate: '任务成功率', completedJobs: '基于 {count} 个已完成任务',
+    runningJobs: '正在运行', liveQueue: '实时任务队列', latestHundred: '最近 100 条记录', platformMatrix: 'Platform matrix',
+    threePlatformTitle: '三平台归档矩阵', managePlatforms: '管理平台', noRuns: '尚未执行', runBackup: '执行备份',
+    activityIndex: 'Activity index', viewAll: '查看全部', jobQuality: 'Job quality',
+    distributionSummary: '成功 {success}，失败 {failed}，运行中 {running}',
+    credentialNote: 'Token 不会写入远程 URL 或任务日志，Git 会话通过临时凭据通道完成。'
   },
   config: {
     title: '备份配置',

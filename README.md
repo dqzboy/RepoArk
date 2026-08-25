@@ -9,8 +9,16 @@
       <td width="50%" align="center"><b>备份设置</b></td>
     </tr>
     <tr>
-        <td width="50%" align="center"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/git_bak_sync-01.png?raw=true"></td>
-        <td width="50%" align="center"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/picture/git_bak_sync-02.png?raw=true"></td>
+        <td width="50%" align="center"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/config/RepoArk01.png?raw=true"></td>
+        <td width="50%" align="center"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/config/RepoArk02.png?raw=true"></td>
+    </tr>
+    <tr>
+      <td width="50%" align="center"><b>任务历史</b></td>
+      <td width="50%" align="center"><b>定时任务</b></td>
+    </tr>
+    <tr>
+        <td width="50%" align="center"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/config/RepoArk03.png?raw=true"></td>
+        <td width="50%" align="center"><img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/config/RepoArk04.png?raw=true"></td>
     </tr>
 </table>
 

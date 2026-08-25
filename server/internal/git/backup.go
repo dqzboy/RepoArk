@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,15 +16,17 @@ import (
 
 // Config 备份执行配置
 type Config struct {
-	Platform     string   // github | gitcode | gitee（影响 repo URL 拼接）
-	GitUser      string   // 用户名 / 命名空间
-	GitToken     string
-	RepoName     string
-	Branch       string
-	BackupDir    string
-	ServerName   string
+	Platform      string // github | gitcode | gitee（影响 repo URL 拼接）
+	GitUser       string // 用户名 / 命名空间
+	GitToken      string
+	RepoName      string
+	Branch        string
+	BackupDir     string
+	ServerName    string
 	BackupSources []string
-	HostRoot     string
+	HostRoot      string
+	// RemoteURL 仅用于测试或自托管 Git 服务覆盖；为空时按 Platform 自动生成。
+	RemoteURL string
 }
 
 // Logger 日志回调：level 取值 INFO/SUCCESS/WARNING/ERROR/GIT
@@ -31,27 +34,49 @@ type Logger func(level, msg string)
 
 // PlatformHost 不同平台的 git host 与 owner 段拼接规则
 type platformHost struct {
-	Host       string // 远端主机名（不带协议）
-	UserInPath bool   // true: gitcode/gitee 把 owner 放在 path 第一段
+	Host string // 远端主机名（不带协议）
 }
 
 // PlatformHosts 各平台的远端 host 配置
 var PlatformHosts = map[string]platformHost{
-	db.PlatformGitHub:  {Host: "github.com", UserInPath: true},
-	db.PlatformGitCode: {Host: "gitcode.net", UserInPath: true},
-	db.PlatformGitee:   {Host: "gitee.com", UserInPath: true},
+	db.PlatformGitHub:  {Host: "github.com"},
+	db.PlatformGitCode: {Host: "gitcode.com"},
+	db.PlatformGitee:   {Host: "gitee.com"},
 }
 
-// BuildRepoURL 按平台拼接 https://token@host/owner/repo.git
-func BuildRepoURL(platform, token, owner, repo string) (string, error) {
+// BuildRepoURL 按平台拼接不含凭据的 HTTPS 地址。
+// Token 不写入 URL，避免泄露到 .git/config、进程参数或任务日志。
+func BuildRepoURL(platform, owner, repo string) (string, error) {
 	ph, ok := PlatformHosts[platform]
 	if !ok {
 		return "", fmt.Errorf("不支持的平台: %s", platform)
 	}
+	owner = strings.Trim(owner, "/ ")
+	repo = strings.Trim(strings.TrimSuffix(strings.TrimSpace(repo), ".git"), "/")
 	if owner == "" || repo == "" {
 		return "", fmt.Errorf("仓库 owner / repo 不能为空")
 	}
-	return fmt.Sprintf("https://%s@%s/%s/%s.git", token, ph.Host, owner, repo), nil
+	escapePath := func(value string) (string, error) {
+		parts := strings.Split(value, "/")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" || part == "." || part == ".." {
+				return "", fmt.Errorf("仓库路径无效: %s", value)
+			}
+			out = append(out, url.PathEscape(part))
+		}
+		return strings.Join(out, "/"), nil
+	}
+	escapedOwner, err := escapePath(owner)
+	if err != nil {
+		return "", err
+	}
+	escapedRepo, err := escapePath(repo)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("https://%s/%s/%s.git", ph.Host, escapedOwner, escapedRepo), nil
 }
 
 // DetectServerName 自动探测服务器标识（优先取第一个内网 IP）
@@ -83,9 +108,16 @@ func PlatformDisplayName(platform string) string {
 }
 
 func runGit(dir string, log Logger, args ...string) error {
+	return runGitEnv(dir, log, nil, args...)
+}
+
+func runGitEnv(dir string, log Logger, env []string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	if dir != "" {
 		cmd.Dir = dir
+	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
 	}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
@@ -99,6 +131,27 @@ func runGit(dir string, log Logger, args ...string) error {
 		}
 	}
 	return err
+}
+
+// credentialEnv 创建一次性 GIT_ASKPASS，用户名和 Token 只通过子进程环境传递。
+func credentialEnv(user, token string) ([]string, func(), error) {
+	dir, err := os.MkdirTemp("", "repoark-askpass-")
+	if err != nil {
+		return nil, nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	script := filepath.Join(dir, "askpass.sh")
+	content := "#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' \"$REPOARK_GIT_USERNAME\" ;;\n  *) printf '%s\\n' \"$REPOARK_GIT_TOKEN\" ;;\nesac\n"
+	if err := os.WriteFile(script, []byte(content), 0o700); err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return []string{
+		"GIT_ASKPASS=" + script,
+		"GIT_TERMINAL_PROMPT=0",
+		"REPOARK_GIT_USERNAME=" + user,
+		"REPOARK_GIT_TOKEN=" + token,
+	}, cleanup, nil
 }
 
 // hasStagedChanges git diff --cached --quiet 退出码非 0 表示存在暂存变更
@@ -208,9 +261,21 @@ func Run(cfg Config, log Logger) error {
 		return fmt.Errorf("%s 仓库信息不完整（需要 user/token/repo）", PlatformDisplayName(cfg.Platform))
 	}
 
-	repoURL, err := BuildRepoURL(cfg.Platform, cfg.GitToken, cfg.GitUser, cfg.RepoName)
+	repoURL := strings.TrimSpace(cfg.RemoteURL)
+	if repoURL == "" {
+		var err error
+		repoURL, err = BuildRepoURL(cfg.Platform, cfg.GitUser, cfg.RepoName)
+		if err != nil {
+			return err
+		}
+	}
+	authEnv, cleanupCredentials, err := credentialEnv(cfg.GitUser, cfg.GitToken)
 	if err != nil {
-		return err
+		return fmt.Errorf("初始化 Git 凭据失败: %w", err)
+	}
+	defer cleanupCredentials()
+	runRemoteGit := func(dir string, args ...string) error {
+		return runGitEnv(dir, log, authEnv, args...)
 	}
 	backupDir := cfg.BackupDir
 	serverBackupDir := filepath.Join(backupDir, cfg.ServerName)
@@ -218,10 +283,14 @@ func Run(cfg Config, log Logger) error {
 	// 1. 克隆仓库（如果不存在）
 	if _, err := os.Stat(filepath.Join(backupDir, ".git")); err != nil {
 		log("INFO", "备份目录不是 git 仓库，正在克隆...")
-		if err := runGit("", log, "clone", "-b", cfg.Branch, repoURL, backupDir); err != nil {
+		if err := runRemoteGit("", "clone", "-b", cfg.Branch, repoURL, backupDir); err != nil {
 			return fmt.Errorf("克隆仓库失败: %w", err)
 		}
 		log("SUCCESS", "仓库克隆成功")
+	}
+	// 兼容旧版本已把 Token 写入 origin URL 的仓库，并同步修复 GitCode 旧域名。
+	if err := runGit(backupDir, log, "remote", "set-url", "origin", repoURL); err != nil {
+		return fmt.Errorf("更新远程仓库地址失败: %w", err)
 	}
 
 	// 2. 配置 git 用户信息（用平台提供的 noreply 邮箱作为占位）
@@ -237,8 +306,12 @@ func Run(cfg Config, log Logger) error {
 	cleanup()
 	_ = runGit(backupDir, log, "config", "core.sparseCheckout", "false")
 	_ = os.Remove(filepath.Join(backupDir, ".git", "info", "sparse-checkout"))
-	_ = runGit(backupDir, log, "fetch", "origin")
-	_ = runGit(backupDir, log, "reset", "--hard", "origin/"+cfg.Branch)
+	if err := runRemoteGit(backupDir, "fetch", "origin"); err != nil {
+		return fmt.Errorf("拉取远程仓库失败: %w", err)
+	}
+	if err := runGit(backupDir, log, "reset", "--hard", "origin/"+cfg.Branch); err != nil {
+		return fmt.Errorf("切换到远程分支 %s 失败: %w", cfg.Branch, err)
+	}
 	log("SUCCESS", "本地仓库已更新到最新状态")
 
 	// 4. 清理当前服务器的旧备份目录
@@ -270,12 +343,14 @@ func Run(cfg Config, log Logger) error {
 	const maxRetries = 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		log("INFO", fmt.Sprintf("第 %d 次尝试推送到远程仓库...", attempt))
-		_ = runGit(backupDir, log, "fetch", "origin")
+		if err := runRemoteGit(backupDir, "fetch", "origin"); err != nil {
+			log("WARNING", "拉取远程更新失败: "+err.Error())
+		}
 		if err := runGit(backupDir, log, "rebase", "origin/"+cfg.Branch); err != nil {
 			log("WARNING", "变基失败，正在中止并重置...")
 			_ = runGit(backupDir, log, "rebase", "--abort")
 			cleanup()
-			_ = runGit(backupDir, log, "fetch", "origin")
+			_ = runRemoteGit(backupDir, "fetch", "origin")
 			_ = runGit(backupDir, log, "reset", "--hard", "origin/"+cfg.Branch)
 			// 重新应用本地更改
 			entries, _ := os.ReadDir(serverBackupDir)
@@ -286,7 +361,7 @@ func Run(cfg Config, log Logger) error {
 			_ = runGit(backupDir, log, "add", cfg.ServerName)
 			_ = runGit(backupDir, log, "commit", "-m", commitMsg)
 		}
-		if err := runGit(backupDir, log, "push", "origin", cfg.Branch); err == nil {
+		if err := runRemoteGit(backupDir, "push", "origin", cfg.Branch); err == nil {
 			log("SUCCESS", "备份完成！"+cfg.ServerName+" 的文件已成功推送到 "+PlatformDisplayName(cfg.Platform)+" 仓库")
 			return nil
 		}

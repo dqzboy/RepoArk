@@ -7,6 +7,10 @@ export default {
     online: 'SYSTEM ONLINE',
     repoTooltip: 'GitHub 倉庫 · {repo}'
   },
+  layout: {
+    skip: '跳到主要內容', navigation: '控制導覽', archiveNode: '歸檔節點',
+    controlRoom: 'Archive Control Room', toggleTheme: '切換明暗主題'
+  },
   platform: {
     label: '平臺',
     tab: '選擇備份平臺',
@@ -14,7 +18,7 @@ export default {
     gitcode: 'GitCode',
     gitee: 'Gitee',
     disabledHint: '當前平臺尚未啟用，請勾選「啟用平臺」並儲存後再使用',
-    hostLabel: '{platform} 倉庫'
+    hostLabel: '{platform} 倉庫', ready: '已啟用', offline: '未啟用'
   },
   nav: {
     dashboard: '儀表板',
@@ -58,7 +62,10 @@ export default {
     passwordPh: '密碼',
     submit: '登 入',
     hint: '預設帳號 admin / admin · 請儘快至「用戶中心」修改',
-    error: '登入失敗'
+    error: '登入失敗', accessPoint: '受控歸檔入口 / 01', heroTitle: '把三處程式碼資產，收進同一座檔案庫。',
+    heroDesc: '統一管理 GitHub、GitCode 與 Gitee 的備份設定、執行記錄和自動排程。', archiveReady: '歸檔通道',
+    securityNote: '存取憑據僅用於受控的 HTTPS Git 工作階段。', credentials: '身分憑據', welcome: '進入控制室',
+    formDesc: '驗證管理員身分後查看備份節點狀態。'
   },
   dashboard: {
     title: '設定概覽',
@@ -81,7 +88,17 @@ export default {
     distTitle: '任務狀態分布',
     totalJobs: '任務總數',
     recentTitle: '近期活動',
-    noJobs: '暫無任務記錄'
+    noJobs: '暫無任務記錄', noJobsDesc: '執行一次備份後，任務軌跡會顯示在這裡。',
+    commandCenter: '三平台歸檔控制台 / Live', heroTitle: '一屏掌握全部程式碼備份節點。',
+    heroDesc: '同時查看三個平台的啟用狀態、倉庫目標、任務品質與最新執行軌跡。',
+    runNow: '立即執行備份', reviewConfig: '檢查設定', archiveHealth: 'Archive health', healthGood: '運行健康',
+    healthWatch: '需要關注', healthSetup: '等待設定', metrics: '歸檔關鍵指標', enabledPlatforms: '已啟用平台',
+    enabledNote: '支援 GitHub / GitCode / Gitee', successRate: '任務成功率', completedJobs: '基於 {count} 個已完成任務',
+    runningJobs: '正在運行', liveQueue: '即時任務佇列', latestHundred: '最近 100 筆記錄', platformMatrix: 'Platform matrix',
+    threePlatformTitle: '三平台歸檔矩陣', managePlatforms: '管理平台', noRuns: '尚未執行', runBackup: '執行備份',
+    activityIndex: 'Activity index', viewAll: '查看全部', jobQuality: 'Job quality',
+    distributionSummary: '成功 {success}，失敗 {failed}，運行中 {running}',
+    credentialNote: 'Token 不會寫入遠端 URL 或任務日誌，Git 工作階段透過臨時憑據通道完成。'
   },
   config: {
     title: '備份設定',

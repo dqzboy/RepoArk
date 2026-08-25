@@ -1,15 +1,6 @@
 <template>
   <div v-loading="loading" element-loading-background="transparent">
-    <el-tabs v-model="active" class="ops-platform-tabs" @tab-change="onTabChange">
-      <el-tab-pane v-for="p in PLATFORMS" :key="p.code" :name="p.code">
-        <template #label>
-          <span class="ops-platform-tab">
-            <i class="ops-platform-dot" :style="{ background: dotColor(p.code) }" :class="{ 'ops-platform-dot--off': !enabledMap[p.code] }" />
-            {{ t('platform.' + p.code) }}
-          </span>
-        </template>
-      </el-tab-pane>
-    </el-tabs>
+    <PlatformSwitcher v-model="active" :enabled-map="enabledMap" @change="onTabChange" />
 
     <el-card class="ops-card">
       <template #header>
@@ -79,9 +70,10 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Delete, Setting } from '@element-plus/icons-vue'
+import PlatformSwitcher from '../components/PlatformSwitcher.vue'
 import api from '../api'
 import { t } from '../i18n'
-import { PLATFORMS, usePlatformStore, platformLabel as pLabel } from '../stores/platform'
+import { usePlatformStore, platformLabel as pLabel } from '../stores/platform'
 
 const store = usePlatformStore()
 const active = ref(store.platform)
@@ -96,17 +88,13 @@ const form = ref({
   backup_dir: '',
   server_name: '',
   host_root: '',
-  backup_sources: []
+  backup_sources: [],
+  schedule_enabled: false,
+  schedule_cron: ''
 })
 const enabledMap = ref({})
 const saving = ref(false)
 const loading = ref(true)
-
-function dotColor(code) {
-  if (code === 'github') return '#7c5cff'
-  if (code === 'gitcode') return '#22b8ff'
-  return '#ff6b35'
-}
 
 async function loadPlatform(code) {
   try {
@@ -120,7 +108,9 @@ async function loadPlatform(code) {
       backup_dir: data.backup_dir || '',
       server_name: data.server_name || '',
       host_root: data.host_root || '',
-      backup_sources: Array.isArray(data.backup_sources) ? [...data.backup_sources] : []
+      backup_sources: Array.isArray(data.backup_sources) ? [...data.backup_sources] : [],
+      schedule_enabled: !!data.schedule_enabled,
+      schedule_cron: data.schedule_cron || ''
     }
     enabledMap.value[code] = !!data.enabled
   } catch (e) {
@@ -162,8 +152,8 @@ async function save() {
       server_name: form.value.server_name,
       host_root: form.value.host_root,
       backup_sources: (form.value.backup_sources || []).map((s) => s.trim()).filter(Boolean),
-      schedule_enabled: false, // schedule_enabled cron 在 /Schedule.vue 中维护
-      schedule_cron: ''
+      schedule_enabled: !!form.value.schedule_enabled,
+      schedule_cron: form.value.schedule_cron || ''
     }
     await api.put('/platforms/' + active.value, payload)
     enabledMap.value[active.value] = !!form.value.enabled
@@ -188,46 +178,3 @@ watch(() => store.platform, async (v) => {
   }
 })
 </script>
-
-<style scoped>
-.ops-platform-tabs {
-  margin-bottom: 14px;
-}
-.ops-platform-tabs :deep(.el-tabs__nav-wrap::after) {
-  background-color: transparent;
-}
-.ops-platform-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-}
-.ops-platform-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 6px currentColor;
-  transition: opacity 0.2s ease;
-}
-.ops-platform-dot--off {
-  opacity: 0.35;
-  box-shadow: none;
-}
-.ops-section {
-  display: flex;
-  align-items: center;
-  margin: 6px 0 14px;
-  font-family: var(--font-display);
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-.ops-section span {
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  padding: 4px 10px;
-  border-radius: 6px;
-}
-</style>

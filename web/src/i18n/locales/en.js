@@ -7,6 +7,10 @@ export default {
     online: 'SYSTEM ONLINE',
     repoTooltip: 'GitHub repo · {repo}'
   },
+  layout: {
+    skip: 'Skip to main content', navigation: 'Control navigation', archiveNode: 'Archive node',
+    controlRoom: 'Archive Control Room', toggleTheme: 'Toggle color theme'
+  },
   platform: {
     label: 'Platform',
     tab: 'Choose backup platform',
@@ -14,7 +18,7 @@ export default {
     gitcode: 'GitCode',
     gitee: 'Gitee',
     disabledHint: 'This platform is not enabled yet. Tick "Enable platform" and save first.',
-    hostLabel: '{platform} Repository'
+    hostLabel: '{platform} Repository', ready: 'Enabled', offline: 'Disabled'
   },
   nav: {
     dashboard: 'Dashboard',
@@ -58,7 +62,10 @@ export default {
     passwordPh: 'Password',
     submit: 'LOGIN',
     hint: 'Default admin / admin · change it in Users soon',
-    error: 'Login failed'
+    error: 'Login failed', accessPoint: 'Controlled archive access / 01', heroTitle: 'Bring three code estates into one archive.',
+    heroDesc: 'Manage backup configuration, execution history, and schedules for GitHub, GitCode, and Gitee from one place.',
+    archiveReady: 'Archive route', securityNote: 'Credentials are used only for controlled HTTPS Git sessions.',
+    credentials: 'Credentials', welcome: 'Enter the control room', formDesc: 'Verify your administrator identity to inspect archive nodes.'
   },
   dashboard: {
     title: 'Overview',
@@ -81,7 +88,17 @@ export default {
     distTitle: 'Job Status Distribution',
     totalJobs: 'Total Jobs',
     recentTitle: 'Recent Activity',
-    noJobs: 'No job records yet'
+    noJobs: 'No job records yet', noJobsDesc: 'Run a backup and its activity trail will appear here.',
+    commandCenter: 'Three-platform archive console / Live', heroTitle: 'Every code backup node, visible at once.',
+    heroDesc: 'See enablement, repository targets, task quality, and recent activity across all three platforms without switching contexts.',
+    runNow: 'Run backup now', reviewConfig: 'Review configuration', archiveHealth: 'Archive health', healthGood: 'Healthy',
+    healthWatch: 'Needs attention', healthSetup: 'Awaiting setup', metrics: 'Archive metrics', enabledPlatforms: 'Enabled platforms',
+    enabledNote: 'GitHub / GitCode / Gitee supported', successRate: 'Success rate', completedJobs: 'Across {count} completed jobs',
+    runningJobs: 'Running now', liveQueue: 'Live task queue', latestHundred: 'Latest 100 records', platformMatrix: 'Platform matrix',
+    threePlatformTitle: 'Three-platform archive matrix', managePlatforms: 'Manage platforms', noRuns: 'Not run yet', runBackup: 'Run backup',
+    activityIndex: 'Activity index', viewAll: 'View all', jobQuality: 'Job quality',
+    distributionSummary: '{success} successful, {failed} failed, {running} running',
+    credentialNote: 'Tokens are never stored in remote URLs or job logs; Git sessions use a temporary credential channel.'
   },
   config: {
     title: 'Backup Config',

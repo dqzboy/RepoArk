@@ -1,12 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Layout from '../layout/Layout.vue'
-import Dashboard from '../views/Dashboard.vue'
-import Config from '../views/Config.vue'
-import Backup from '../views/Backup.vue'
-import Jobs from '../views/Jobs.vue'
-import Users from '../views/Users.vue'
-import Schedule from '../views/Schedule.vue'
+
+const Dashboard = () => import('../views/Dashboard.vue')
+const Config = () => import('../views/Config.vue')
+const Backup = () => import('../views/Backup.vue')
+const Jobs = () => import('../views/Jobs.vue')
+const Users = () => import('../views/Users.vue')
+const Schedule = () => import('../views/Schedule.vue')
 
 const routes = [
   { path: '/login', name: 'login', component: Login },

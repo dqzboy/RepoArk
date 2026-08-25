@@ -1,15 +1,6 @@
 <template>
   <div v-loading="loading" element-loading-background="transparent">
-    <el-tabs v-model="active" class="ops-platform-tabs" @tab-change="onTabChange">
-      <el-tab-pane v-for="p in PLATFORMS" :key="p.code" :name="p.code">
-        <template #label>
-          <span class="ops-platform-tab">
-            <i class="ops-platform-dot" :style="{ background: dotColor(p.code) }" :class="{ 'ops-platform-dot--off': !enabledMap[p.code] }" />
-            {{ t('platform.' + p.code) }}
-          </span>
-        </template>
-      </el-tab-pane>
-    </el-tabs>
+    <PlatformSwitcher v-model="active" :enabled-map="enabledMap" @change="onTabChange" />
 
     <el-alert
       type="info"
@@ -101,9 +92,10 @@
 import { ref, reactive, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Clock, Calendar } from '@element-plus/icons-vue'
+import PlatformSwitcher from '../components/PlatformSwitcher.vue'
 import api from '../api'
 import { t } from '../i18n'
-import { PLATFORMS, usePlatformStore, platformLabel as pLabel } from '../stores/platform'
+import { usePlatformStore, platformLabel as pLabel } from '../stores/platform'
 
 const store = usePlatformStore()
 const active = ref(store.platform)
@@ -123,12 +115,6 @@ const hourInterval = ref(2)
 const saving = ref(false)
 const testing = ref(false)
 const loading = ref(true)
-
-function dotColor(code) {
-  if (code === 'github') return '#7c5cff'
-  if (code === 'gitcode') return '#22b8ff'
-  return '#ff6b35'
-}
 
 function rebuildCron() {
   if (mode.value === 'daily') {
@@ -313,35 +299,6 @@ async function testRun() {
 </script>
 
 <style scoped>
-.ops-platform-tabs { margin-bottom: 14px; }
-.ops-platform-tabs :deep(.el-tabs__nav-wrap::after) { background-color: transparent; }
-.ops-platform-tab {
-  display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px;
-}
-.ops-platform-dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  box-shadow: 0 0 6px currentColor; transition: opacity 0.2s ease;
-}
-.ops-platform-dot--off { opacity: 0.35; box-shadow: none; }
-.ops-section {
-  display: flex; align-items: center; margin: 6px 0 14px;
-  font-family: var(--font-display); font-size: 11px; letter-spacing: 0.18em;
-  color: var(--text-muted); text-transform: uppercase;
-}
-.ops-section span {
-  background: var(--surface-2); border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px;
-}
-.ops-hint {
-  margin-left: 12px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-family: var(--font-display);
-}
-.ops-muted {
-  color: var(--text-muted);
-  font-family: var(--font-display);
-  font-size: 13px;
-}
 .ops-alert { margin-top: 8px; }
 .ops-pill__icon { margin-right: 2px; vertical-align: -1px; }
 .ops-pill--live {
