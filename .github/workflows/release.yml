@@ -18,7 +18,9 @@ permissions:
 
 env:
   APP_NAME: repoark-server
-  IMAGE: ghcr.io/${{ github.repository }}/repoark:latest
+  # 用 github.repository 作为镜像名（dqzboy/RepoArk → ghcr.io/dqzboy/RepoArk）。
+  # 不要在这里再追加 path segment，否则会变成 ghcr.io/<owner>/RepoArk/repoark 引发 invalid reference format。
+  IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
   # ============ 跨平台二进制文件 ============
@@ -39,7 +41,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: web/package-lock.json
 
