@@ -18,8 +18,8 @@ permissions:
 
 env:
   APP_NAME: repoark-server
-  # 用 github.repository 作为镜像名（dqzboy/RepoArk → ghcr.io/dqzboy/RepoArk）。
-  # 不要在这里再追加 path segment，否则会变成 ghcr.io/<owner>/RepoArk/repoark 引发 invalid reference format。
+  # metadata-action 会在这个基础镜像名后追加 :1.0.2、:latest 等标签。
+  # 因此这里只能放不带 :tag 的镜像名，否则会生成 :latest:1.0.2 这类非法引用。
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
