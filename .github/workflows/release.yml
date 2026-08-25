@@ -17,8 +17,8 @@ permissions:
   actions: read        # 下载 artifacts（actions/download-artifact@v4 需要）
 
 env:
-  APP_NAME: git-backup-server
-  IMAGE: ghcr.io/${{ github.repository }}
+  APP_NAME: repoark-server
+  IMAGE: ghcr.io/${{ github.repository }}/repoark:latest
 
 jobs:
   # ============ 跨平台二进制文件 ============
