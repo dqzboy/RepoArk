@@ -6,7 +6,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # 持久化 SQLite 数据（默认管理员 admin/admin）
+      # SQLite 数据持久化到宿主机 ./data
       - ./data:/app/data
       # 把宿主机整棵目录树只读挂到容器 /host
       - /:/host:ro

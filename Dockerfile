@@ -15,13 +15,11 @@ COPY --from=frontend /app/web/dist ./webroot/dist
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/git-backup-server .
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates git openssh-client tzdata \
-    && adduser -D -u 1000 appuser
+RUN apk add --no-cache ca-certificates git openssh-client tzdata
 WORKDIR /app
 COPY --from=backend /out/git-backup-server /app/git-backup-server
-# 数据目录（SQLite 会在启动时自动建库），建议挂载卷持久化
-RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
-USER appuser
+# SQLite 会在启动时自动建库；运行时将宿主机目录挂载到这里持久化。
+RUN mkdir -p /app/data
 EXPOSE 8080
 VOLUME ["/app/data"]
 ENTRYPOINT ["/app/git-backup-server"]
