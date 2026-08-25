@@ -7,6 +7,15 @@ export default {
     online: 'SYSTEM ONLINE',
     repoTooltip: 'GitHub 倉庫 · {repo}'
   },
+  platform: {
+    label: '平臺',
+    tab: '選擇備份平臺',
+    github: 'GitHub',
+    gitcode: 'GitCode',
+    gitee: 'Gitee',
+    disabledHint: '當前平臺尚未啟用，請勾選「啟用平臺」並儲存後再使用',
+    hostLabel: '{platform} 倉庫'
+  },
   nav: {
     dashboard: '儀表板',
     config: '備份設定',
@@ -33,7 +42,8 @@ export default {
     test: '測試',
     none: '無',
     untitled: '未命名',
-    loading: '載入中…'
+    loading: '載入中…',
+    enablePlatform: '啟用平臺'
   },
   status: {
     success: '成功',
@@ -47,17 +57,18 @@ export default {
     usernamePh: '使用者名稱',
     passwordPh: '密碼',
     submit: '登 入',
-    hint: '預設帳號 admin / admin · 請儘快至「備份設定」修改',
+    hint: '預設帳號 admin / admin · 請儘快至「用戶中心」修改',
     error: '登入失敗'
   },
   dashboard: {
     title: '設定概覽',
+    platform: '當前平臺',
     repo: '倉庫',
     branch: '分支',
     sources: '備份來源數量',
     lastJob: '最近任務',
     overview: '設定概覽',
-    gitUser: 'GitHub 使用者',
+    gitUser: '{platform} 使用者',
     repoName: '倉庫名稱',
     branchL: '分支',
     backupDir: '備份目錄',
@@ -66,7 +77,7 @@ export default {
     admin: '管理員',
     sourcesL: '備份來源',
     notConfigured: '未設定',
-    tokenWarn: '尚未設定 GitHub Token，請先至「備份設定」頁面填寫後再執行備份',
+    tokenWarn: '尚未設定 {platform} Token，請先至「備份設定」頁面填寫後再執行備份',
     distTitle: '任務狀態分布',
     totalJobs: '任務總數',
     recentTitle: '近期活動',
@@ -74,9 +85,9 @@ export default {
   },
   config: {
     title: '備份設定',
-    sectionRepo: 'GitHub 倉庫',
-    gitUser: 'GitHub 使用者名稱',
-    gitToken: 'GitHub Token',
+    sectionRepo: '{platform} 倉庫',
+    gitUser: '{platform} 使用者名稱 / 命名空間',
+    gitToken: '{platform} Token',
     tokenPh: '留空表示不修改（已設定時顯示為 ********）',
     repoName: '倉庫名稱',
     branch: '分支',
@@ -92,12 +103,14 @@ export default {
     hostRootHelp: 'Docker 部署時，請把宿主機根目錄唯讀掛載到容器的 /host（如 -v /:/host:ro），此處填 /host 後，備份來源路徑無需加前綴，體驗與二進位直接運行一致。',
     save: '儲存設定',
     saved: '設定已儲存',
-    saveError: '儲存失敗'
+    saveError: '儲存失敗',
+    enabled: '啟用該平臺'
   },
   backup: {
     title: '執行備份',
+    tabHint: '每個平臺獨立觸發，互不影響',
     start: '開始備份',
-    info: '點擊「開始備份」將依目前設定，把備份來源複製到以伺服器 IP 命名的目錄並提交推送到 GitHub 倉庫',
+    info: '點擊「開始備份」將依目前設定，把備份來源複製到以伺服器 IP 命名的目錄並提交推送到 {platform} 倉庫',
     runningMsg: '任務進行中，請稍候…',
     jobMeta: '任務 #{id} · 伺服器 {server}',
     success: '備份成功',
@@ -106,11 +119,13 @@ export default {
     unknown: '未知',
     startError: '啟動失敗',
     doneSuccess: '備份完成：成功',
-    doneFailed: '備份完成：失敗'
+    doneFailed: '備份完成：失敗',
+    notEnabled: '當前平臺未啟用，請先至「備份設定」中開啟',
+    noToken: '尚未設定 Token，請先至「備份設定」中填寫'
   },
   schedule: {
     title: '定時任務',
-    section: '排程設定',
+    section: '{platform} 排程設定',
     enabled: '啟用定時備份',
     freq: '執行頻率',
     daily: '每天固定時間',
@@ -135,11 +150,13 @@ export default {
     loadError: '讀取設定失敗',
     triggered: '已觸發一次備份，任務 #{id}',
     triggerError: '觸發失敗',
-    saveError: '儲存失敗'
+    saveError: '儲存失敗',
+    platformHint: '每個平臺獨立維護一份定時任務，切換上方 Tabs 即可分別設定。'
   },
   jobs: {
     title: '任務歷史',
     id: 'ID',
+    platform: '平臺',
     server: '伺服器',
     status: '狀態',
     result: '結果',
@@ -149,7 +166,8 @@ export default {
     log: '日誌',
     logTitle: '備份日誌',
     noLog: '(無日誌)',
-    empty: '暫無任務記錄'
+    empty: '暫無任務記錄',
+    allPlatforms: '全部平臺'
   },
   users: {
     title: '用戶中心',

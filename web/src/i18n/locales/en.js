@@ -7,6 +7,15 @@ export default {
     online: 'SYSTEM ONLINE',
     repoTooltip: 'GitHub repo · {repo}'
   },
+  platform: {
+    label: 'Platform',
+    tab: 'Choose backup platform',
+    github: 'GitHub',
+    gitcode: 'GitCode',
+    gitee: 'Gitee',
+    disabledHint: 'This platform is not enabled yet. Tick "Enable platform" and save first.',
+    hostLabel: '{platform} Repository'
+  },
   nav: {
     dashboard: 'Dashboard',
     config: 'Backup Config',
@@ -33,7 +42,8 @@ export default {
     test: 'Test',
     none: 'None',
     untitled: 'Untitled',
-    loading: 'Loading…'
+    loading: 'Loading…',
+    enablePlatform: 'Enable platform'
   },
   status: {
     success: 'Success',
@@ -47,17 +57,18 @@ export default {
     usernamePh: 'Username',
     passwordPh: 'Password',
     submit: 'LOGIN',
-    hint: 'Default admin / admin · change it in Backup Config soon',
+    hint: 'Default admin / admin · change it in Users soon',
     error: 'Login failed'
   },
   dashboard: {
     title: 'Overview',
+    platform: 'Current platform',
     repo: 'Repository',
     branch: 'Branch',
     sources: 'Sources',
     lastJob: 'Last Job',
     overview: 'Configuration Overview',
-    gitUser: 'GitHub User',
+    gitUser: '{platform} User',
     repoName: 'Repository',
     branchL: 'Branch',
     backupDir: 'Backup Dir',
@@ -66,7 +77,7 @@ export default {
     admin: 'Admin',
     sourcesL: 'Sources',
     notConfigured: 'Not configured',
-    tokenWarn: 'GitHub Token is not set. Please configure it in Backup Config before running a backup.',
+    tokenWarn: '{platform} Token is not set. Please configure it in Backup Config before running a backup.',
     distTitle: 'Job Status Distribution',
     totalJobs: 'Total Jobs',
     recentTitle: 'Recent Activity',
@@ -74,9 +85,9 @@ export default {
   },
   config: {
     title: 'Backup Config',
-    sectionRepo: 'GitHub Repository',
-    gitUser: 'GitHub Username',
-    gitToken: 'GitHub Token',
+    sectionRepo: '{platform} Repository',
+    gitUser: '{platform} Username / Namespace',
+    gitToken: '{platform} Token',
     tokenPh: 'Leave blank to keep current (shown as ********)',
     repoName: 'Repository Name',
     branch: 'Branch',
@@ -92,12 +103,14 @@ export default {
     hostRootHelp: 'In Docker, mount the host root into the container at /host (e.g. -v /:/host:ro), then set this to /host. Backup source paths can then be written without a prefix, matching the native binary experience.',
     save: 'Save Config',
     saved: 'Config saved',
-    saveError: 'Save failed'
+    saveError: 'Save failed',
+    enabled: 'Enable this platform'
   },
   backup: {
     title: 'Run Backup',
+    tabHint: 'Each platform runs independently',
     start: 'Start Backup',
-    info: 'Click “Start Backup” to copy the backup sources into a folder named by the server IP and push it to the GitHub repository.',
+    info: 'Click "Start Backup" to copy the backup sources into a folder named by the server IP and push it to the {platform} repository.',
     runningMsg: 'Job in progress, please wait…',
     jobMeta: 'Job #{id} · Server {server}',
     success: 'Backup succeeded',
@@ -106,11 +119,13 @@ export default {
     unknown: 'Unknown',
     startError: 'Failed to start',
     doneSuccess: 'Backup finished: success',
-    doneFailed: 'Backup finished: failed'
+    doneFailed: 'Backup finished: failed',
+    notEnabled: 'This platform is not enabled. Enable it in Backup Config first.',
+    noToken: 'Token not set yet. Configure it in Backup Config first.'
   },
   schedule: {
     title: 'Schedule',
-    section: 'Scheduling',
+    section: '{platform} Scheduling',
     enabled: 'Enable scheduled backup',
     freq: 'Frequency',
     daily: 'Daily at fixed time',
@@ -135,11 +150,13 @@ export default {
     loadError: 'Failed to load config',
     triggered: 'Triggered a backup, job #{id}',
     triggerError: 'Failed to trigger',
-    saveError: 'Save failed'
+    saveError: 'Save failed',
+    platformHint: 'Each platform maintains its own schedule. Switch the tabs above to configure them separately.'
   },
   jobs: {
     title: 'Job History',
     id: 'ID',
+    platform: 'Platform',
     server: 'Server',
     status: 'Status',
     result: 'Result',
@@ -149,7 +166,8 @@ export default {
     log: 'Log',
     logTitle: 'Backup Log',
     noLog: '(no log)',
-    empty: 'No job records yet'
+    empty: 'No job records yet',
+    allPlatforms: 'All platforms'
   },
   users: {
     title: 'Users',
@@ -176,7 +194,7 @@ export default {
     cancel: 'Cancel',
     save: 'Save',
     saved: 'Saved',
-    delConfirm: 'Delete user “{user}”?',
+    delConfirm: 'Delete user "{user}"?',
     delTitle: 'Confirm',
     deleted: 'Deleted',
     saveError: 'Save failed',

@@ -7,6 +7,15 @@ export default {
     online: 'SYSTEM ONLINE',
     repoTooltip: 'GitHub 仓库 · {repo}'
   },
+  platform: {
+    label: '平台',
+    tab: '选择备份平台',
+    github: 'GitHub',
+    gitcode: 'GitCode',
+    gitee: 'Gitee',
+    disabledHint: '当前平台尚未启用，请勾选「启用平台」并保存后再使用',
+    hostLabel: '{platform} 仓库'
+  },
   nav: {
     dashboard: '仪表盘',
     config: '备份配置',
@@ -33,7 +42,8 @@ export default {
     test: '测试',
     none: '无',
     untitled: '未命名',
-    loading: '加载中…'
+    loading: '加载中…',
+    enablePlatform: '启用平台'
   },
   status: {
     success: '成功',
@@ -47,17 +57,18 @@ export default {
     usernamePh: '用户名',
     passwordPh: '密码',
     submit: '登 录',
-    hint: '默认账号 admin / admin · 请尽快到「备份配置」修改',
+    hint: '默认账号 admin / admin · 请尽快到「用户中心」修改',
     error: '登录失败'
   },
   dashboard: {
     title: '配置概览',
+    platform: '当前平台',
     repo: '仓库',
     branch: '分支',
     sources: '备份源数量',
     lastJob: '最近任务',
     overview: '配置概览',
-    gitUser: 'GitHub 用户',
+    gitUser: '{platform} 用户',
     repoName: '仓库名',
     branchL: '分支',
     backupDir: '备份目录',
@@ -66,7 +77,7 @@ export default {
     admin: '管理员',
     sourcesL: '备份源',
     notConfigured: '未配置',
-    tokenWarn: '尚未配置 GitHub Token，请先到「备份配置」页面填写后再执行备份',
+    tokenWarn: '尚未配置 {platform} Token，请先到「备份配置」页面填写后再执行备份',
     distTitle: '任务状态分布',
     totalJobs: '任务总数',
     recentTitle: '近期活动',
@@ -74,9 +85,9 @@ export default {
   },
   config: {
     title: '备份配置',
-    sectionRepo: 'GitHub 仓库',
-    gitUser: 'GitHub 用户名',
-    gitToken: 'GitHub Token',
+    sectionRepo: '{platform} 仓库',
+    gitUser: '{platform} 用户名 / 命名空间',
+    gitToken: '{platform} Token',
     tokenPh: '留空表示不修改（已设置时显示为 ********）',
     repoName: '仓库名称',
     branch: '分支',
@@ -92,12 +103,14 @@ export default {
     hostRootHelp: 'Docker 部署时，请将宿主机根目录只读挂载到容器的 /host（如 -v /:/host:ro），此处填 /host 后，备份源路径无需加前缀，体验与二进制直接运行一致。',
     save: '保存配置',
     saved: '配置已保存',
-    saveError: '保存失败'
+    saveError: '保存失败',
+    enabled: '启用该平台'
   },
   backup: {
     title: '执行备份',
+    tabHint: '每个平台独立触发，互不影响',
     start: '开始备份',
-    info: '点击「开始备份」将按当前配置，把备份源拷贝到以服务器 IP 命名的目录并提交推送到 GitHub 仓库',
+    info: '点击「开始备份」将按当前配置，把备份源拷贝到以服务器 IP 命名的目录并提交推送到 {platform} 仓库',
     runningMsg: '任务进行中，请稍候…',
     jobMeta: '任务 #{id} · 服务器 {server}',
     success: '备份成功',
@@ -106,11 +119,13 @@ export default {
     unknown: '未知',
     startError: '启动失败',
     doneSuccess: '备份完成：成功',
-    doneFailed: '备份完成：失败'
+    doneFailed: '备份完成：失败',
+    notEnabled: '当前平台未启用，请先到「备份配置」中开启',
+    noToken: '尚未配置 Token，请先到「备份配置」中填写'
   },
   schedule: {
     title: '定时任务',
-    section: '调度设置',
+    section: '{platform} 调度设置',
     enabled: '启用定时备份',
     freq: '执行频率',
     daily: '每天固定时间',
@@ -135,11 +150,13 @@ export default {
     loadError: '读取配置失败',
     triggered: '已触发一次备份，任务 #{id}',
     triggerError: '触发失败',
-    saveError: '保存失败'
+    saveError: '保存失败',
+    platformHint: '每个平台独立维护一份定时任务，切换上方 Tabs 即可分别配置。'
   },
   jobs: {
     title: '任务历史',
     id: 'ID',
+    platform: '平台',
     server: '服务器',
     status: '状态',
     result: '结果',
@@ -149,7 +166,8 @@ export default {
     log: '日志',
     logTitle: '备份日志',
     noLog: '(无日志)',
-    empty: '暂无任务记录'
+    empty: '暂无任务记录',
+    allPlatforms: '全部平台'
   },
   users: {
     title: '用户中心',

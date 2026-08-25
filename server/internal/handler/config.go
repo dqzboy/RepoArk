@@ -3,100 +3,138 @@ package handler
 import (
 	"net/http"
 
-	"git-backup-web/server/internal/config"
+	"git-backup-web/server/internal/db"
 
 	"github.com/gin-gonic/gin"
 	"github.com/robfig/cron/v3"
 	"gorm.io/gorm"
 )
 
-// GetConfig 返回当前配置（Token 脱敏）
-func GetConfig(database *gorm.DB) gin.HandlerFunc {
+// ListPlatforms 返回所有平台的 Profile 摘要（不含 Token 原文）
+func ListPlatforms(database *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var cfg config.Config
-		if err := database.First(&cfg).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取配置失败"})
+		var profiles []db.Profile
+		if err := database.Order("id asc").Find(&profiles).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取平台配置失败"})
 			return
 		}
-		sources, _ := cfg.Sources()
-		tokenMask := ""
-		if cfg.GitToken != "" {
-			tokenMask = "********"
+		out := make([]gin.H, 0, len(profiles))
+		for _, p := range profiles {
+			sources, _ := p.Sources()
+			out = append(out, profileResponse(p, sources))
 		}
-		c.JSON(http.StatusOK, gin.H{
-			"git_user":          cfg.GitUser,
-			"git_token":         tokenMask,
-			"repo_name":         cfg.RepoName,
-			"branch":            cfg.Branch,
-			"backup_dir":        cfg.BackupDir,
-			"server_name":       cfg.ServerName,
-			"host_root":         cfg.EffectiveHostRoot(),
-			"backup_sources":    sources,
-			"admin_user":        cfg.AdminUser,
-			"schedule_enabled":  cfg.ScheduleEnabled,
-			"schedule_cron":     cfg.ScheduleCron,
-			"schedule_last_run": cfg.ScheduleLastRun,
-		})
+		c.JSON(http.StatusOK, out)
 	}
 }
 
-// UpdateConfig 更新配置
-func UpdateConfig(database *gorm.DB) gin.HandlerFunc {
+// GetProfile 返回指定平台的 Profile 详情
+func GetProfile(database *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-	var body struct {
-		GitUser       string   `json:"git_user"`
-		GitToken      string   `json:"git_token"`
-		RepoName      string   `json:"repo_name"`
-		Branch        string   `json:"branch"`
-		BackupDir     string   `json:"backup_dir"`
-		ServerName    string   `json:"server_name"`
-		BackupSources []string `json:"backup_sources"`
-		AdminUser     string   `json:"admin_user"`
-		AdminPass     string   `json:"admin_pass"`
-		ScheduleEnabled bool   `json:"schedule_enabled"`
-		ScheduleCron    string `json:"schedule_cron"`
-		HostRoot        string `json:"host_root"`
-	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
-		return
-	}
-	// 定时表达式校验（仅在启用时校验）
-	if body.ScheduleEnabled && body.ScheduleCron != "" {
-		if _, err := cron.ParseStandard(body.ScheduleCron); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "定时表达式格式不正确: " + err.Error()})
+		platform := c.Param("platform")
+		if !validPlatform(platform) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "不支持的平台: " + platform})
 			return
 		}
-	}
-		var cfg config.Config
-		if err := database.First(&cfg).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取配置失败"})
+		var p db.Profile
+		if err := database.Where("platform = ?", platform).First(&p).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "平台配置不存在"})
 			return
 		}
-		cfg.GitUser = body.GitUser
+		sources, _ := p.Sources()
+		c.JSON(http.StatusOK, profileResponse(p, sources))
+	}
+}
+
+// UpdateProfile 更新指定平台的 Profile
+func UpdateProfile(database *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		platform := c.Param("platform")
+		if !validPlatform(platform) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "不支持的平台: " + platform})
+			return
+		}
+		var body struct {
+			Enabled          bool     `json:"enabled"`
+			GitUser          string   `json:"git_user"`
+			GitToken         string   `json:"git_token"`
+			RepoName         string   `json:"repo_name"`
+			Branch           string   `json:"branch"`
+			BackupDir        string   `json:"backup_dir"`
+			ServerName       string   `json:"server_name"`
+			BackupSources    []string `json:"backup_sources"`
+			HostRoot         string   `json:"host_root"`
+			ScheduleEnabled  bool     `json:"schedule_enabled"`
+			ScheduleCron     string   `json:"schedule_cron"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
+			return
+		}
+		// 定时表达式校验（仅在该平台启用定时时校验）
+		if body.ScheduleEnabled && body.ScheduleCron != "" {
+			if _, err := cron.ParseStandard(body.ScheduleCron); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "定时表达式格式不正确: " + err.Error()})
+				return
+			}
+		}
+		var p db.Profile
+		if err := database.Where("platform = ?", platform).First(&p).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "平台配置不存在"})
+			return
+		}
+		p.Enabled = body.Enabled
+		p.GitUser = body.GitUser
 		if body.GitToken != "" && body.GitToken != "********" {
-			cfg.GitToken = body.GitToken
+			p.GitToken = body.GitToken
 		}
-		cfg.RepoName = body.RepoName
+		p.RepoName = body.RepoName
 		if body.Branch != "" {
-			cfg.Branch = body.Branch
+			p.Branch = body.Branch
 		}
-		cfg.BackupDir = body.BackupDir
-		cfg.ServerName = body.ServerName
-		_ = cfg.SetSources(body.BackupSources)
-		if body.AdminUser != "" {
-			cfg.AdminUser = body.AdminUser
-		}
-		if body.AdminPass != "" {
-			cfg.AdminPass = body.AdminPass
-		}
-		cfg.ScheduleEnabled = body.ScheduleEnabled
-		cfg.ScheduleCron = body.ScheduleCron
-		cfg.HostRoot = body.HostRoot
-		if err := database.Save(&cfg).Error; err != nil {
+		p.BackupDir = body.BackupDir
+		p.ServerName = body.ServerName
+		_ = p.SetSources(body.BackupSources)
+		p.HostRoot = body.HostRoot
+		p.ScheduleEnabled = body.ScheduleEnabled
+		p.ScheduleCron = body.ScheduleCron
+		if err := database.Save(&p).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "保存失败"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "配置已保存"})
+		c.JSON(http.StatusOK, gin.H{"message": "配置已保存", "platform": platform})
 	}
+}
+
+// profileResponse 把 Profile 转成前端友好的响应，Token 做脱敏
+func profileResponse(p db.Profile, sources []string) gin.H {
+	tokenMask := ""
+	if p.GitToken != "" {
+		tokenMask = "********"
+	}
+	return gin.H{
+		"id":                p.ID,
+		"platform":          p.Platform,
+		"enabled":           p.Enabled,
+		"git_user":          p.GitUser,
+		"git_token":         tokenMask,
+		"repo_name":         p.RepoName,
+		"branch":            p.Branch,
+		"backup_dir":        p.BackupDir,
+		"server_name":       p.ServerName,
+		"host_root":         p.EffectiveHostRoot(),
+		"backup_sources":    sources,
+		"schedule_enabled":  p.ScheduleEnabled,
+		"schedule_cron":     p.ScheduleCron,
+		"schedule_last_run": p.ScheduleLastRun,
+	}
+}
+
+// validPlatform 校验平台合法，避免 handler 与 manager 重复实现
+func validPlatform(p string) bool {
+	for _, v := range db.AllPlatforms() {
+		if v == p {
+			return true
+		}
+	}
+	return false
 }

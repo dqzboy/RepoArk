@@ -10,11 +10,15 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListJobs 返回任务历史（按 ID 倒序）
+// ListJobs 返回任务历史（按 ID 倒序，可选 ?platform=github 过滤）
 func ListJobs(database *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		q := database.Order("id desc").Limit(100)
+		if platform := c.Query("platform"); platform != "" {
+			q = q.Where("platform = ?", platform)
+		}
 		var jobs []db.Job
-		database.Order("id desc").Limit(100).Find(&jobs)
+		q.Find(&jobs)
 		c.JSON(http.StatusOK, jobs)
 	}
 }

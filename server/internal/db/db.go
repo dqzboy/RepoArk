@@ -16,7 +16,8 @@ import (
 // Job 一次备份任务的记录
 type Job struct {
 	ID         uint   `gorm:"primaryKey" json:"id"`
-	Status     string `json:"status"` // running | success | failed
+	Platform   string `gorm:"size:16;index" json:"platform"` // github | gitcode | gitee（用于筛选展示）
+	Status     string `json:"status"`                       // running | success | failed
 	ServerName string `json:"server_name"`
 	Message    string `json:"message"`
 	Log        string `json:"log"`
@@ -34,7 +35,8 @@ type User struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-// Init 初始化 SQLite 数据库，自动建表、写入默认配置并播种管理员账号
+// Init 初始化 SQLite 数据库，自动建表、写入默认配置并播种管理员账号。
+// 还会把旧 Config 表里的 GitHub 字段自动迁移到 profiles 表（一条 GitHub Profile）。
 func Init(path string) (*gorm.DB, error) {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -47,7 +49,7 @@ func Init(path string) (*gorm.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := database.AutoMigrate(&config.Config{}, &Job{}, &User{}); err != nil {
+	if err := database.AutoMigrate(&config.Config{}, &Job{}, &User{}, &Profile{}); err != nil {
 		return nil, err
 	}
 	var c config.Config
@@ -74,5 +76,47 @@ func Init(path string) (*gorm.DB, error) {
 			})
 		}
 	}
+	// 首启迁移：profiles 表为空时，自动创建 3 个平台的占位 Profile。
+	// 若旧 Config 中有 GitHub 凭证（Token/Repo 非默认值），把其克隆到 GitHub Profile。
+	migrateProfiles(database, c)
 	return database, nil
+}
+
+// migrateProfiles 一次性把旧 Config 表的 GitHub 配置克隆为 GitHub Profile，
+// 并为其它两个平台创建默认占位记录（未启用）。
+func migrateProfiles(database *gorm.DB, c config.Config) {
+	var count int64
+	database.Model(&Profile{}).Count(&count)
+	if count > 0 {
+		return
+	}
+	now := time.Now().Format("2006-01-02 15:04:05")
+
+	// GitHub：尝试复用旧 config 中的字段
+	gh := NewEmptyProfile(PlatformGitHub)
+	gh.Enabled = c.ScheduleEnabled
+	gh.GitUser = c.GitUser
+	gh.GitToken = c.GitToken
+	gh.RepoName = c.RepoName
+	gh.Branch = c.Branch
+	gh.BackupDir = c.BackupDir
+	gh.ServerName = c.ServerName
+	gh.HostRoot = c.HostRoot
+	gh.ScheduleEnabled = c.ScheduleEnabled
+	gh.ScheduleCron = c.ScheduleCron
+	gh.ScheduleLastRun = c.ScheduleLastRun
+	gh.UpdatedAt = now
+	if sources, err := c.Sources(); err == nil {
+		_ = gh.SetSources(sources)
+	} else {
+		gh.BackupSources = c.BackupSources // 兜底原样写入
+	}
+	database.Create(gh)
+
+	// GitCode / Gitee 占位
+	for _, p := range []string{PlatformGitCode, PlatformGitee} {
+		profile := NewEmptyProfile(p)
+		profile.UpdatedAt = now
+		database.Create(profile)
+	}
 }

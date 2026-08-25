@@ -9,22 +9,50 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"git-backup-web/server/internal/db"
 )
 
 // Config 备份执行配置
 type Config struct {
-	GitUser       string
-	GitToken      string
-	RepoName      string
-	Branch        string
-	BackupDir     string
-	ServerName    string
+	Platform     string   // github | gitcode | gitee（影响 repo URL 拼接）
+	GitUser      string   // 用户名 / 命名空间
+	GitToken     string
+	RepoName     string
+	Branch       string
+	BackupDir    string
+	ServerName   string
 	BackupSources []string
-	HostRoot      string
+	HostRoot     string
 }
 
 // Logger 日志回调：level 取值 INFO/SUCCESS/WARNING/ERROR/GIT
 type Logger func(level, msg string)
+
+// PlatformHost 不同平台的 git host 与 owner 段拼接规则
+type platformHost struct {
+	Host       string // 远端主机名（不带协议）
+	UserInPath bool   // true: gitcode/gitee 把 owner 放在 path 第一段
+}
+
+// PlatformHosts 各平台的远端 host 配置
+var PlatformHosts = map[string]platformHost{
+	db.PlatformGitHub:  {Host: "github.com", UserInPath: true},
+	db.PlatformGitCode: {Host: "gitcode.net", UserInPath: true},
+	db.PlatformGitee:   {Host: "gitee.com", UserInPath: true},
+}
+
+// BuildRepoURL 按平台拼接 https://token@host/owner/repo.git
+func BuildRepoURL(platform, token, owner, repo string) (string, error) {
+	ph, ok := PlatformHosts[platform]
+	if !ok {
+		return "", fmt.Errorf("不支持的平台: %s", platform)
+	}
+	if owner == "" || repo == "" {
+		return "", fmt.Errorf("仓库 owner / repo 不能为空")
+	}
+	return fmt.Sprintf("https://%s@%s/%s/%s.git", token, ph.Host, owner, repo), nil
+}
 
 // DetectServerName 自动探测服务器标识（优先取第一个内网 IP）
 func DetectServerName() string {
@@ -38,6 +66,20 @@ func DetectServerName() string {
 		return h
 	}
 	return "unknown-server"
+}
+
+// PlatformDisplayName 返回平台展示名（用于日志）
+func PlatformDisplayName(platform string) string {
+	switch platform {
+	case db.PlatformGitHub:
+		return "GitHub"
+	case db.PlatformGitCode:
+		return "GitCode"
+	case db.PlatformGitee:
+		return "Gitee"
+	default:
+		return platform
+	}
 }
 
 func runGit(dir string, log Logger, args ...string) error {
@@ -150,6 +192,9 @@ func copySources(sources []string, hostRoot, serverBackupDir string, log Logger)
 
 // Run 执行一次完整备份，逻辑等价于原 git_sync_backup.sh
 func Run(cfg Config, log Logger) error {
+	if cfg.Platform == "" {
+		cfg.Platform = db.PlatformGitHub
+	}
 	if cfg.ServerName == "" {
 		cfg.ServerName = DetectServerName()
 	}
@@ -160,10 +205,13 @@ func Run(cfg Config, log Logger) error {
 		return fmt.Errorf("备份目录未配置")
 	}
 	if cfg.GitUser == "" || cfg.GitToken == "" || cfg.RepoName == "" {
-		return fmt.Errorf("GitHub 仓库信息不完整（需要 user/token/repo）")
+		return fmt.Errorf("%s 仓库信息不完整（需要 user/token/repo）", PlatformDisplayName(cfg.Platform))
 	}
 
-	repoURL := fmt.Sprintf("https://%s@github.com/%s/%s.git", cfg.GitToken, cfg.GitUser, cfg.RepoName)
+	repoURL, err := BuildRepoURL(cfg.Platform, cfg.GitToken, cfg.GitUser, cfg.RepoName)
+	if err != nil {
+		return err
+	}
 	backupDir := cfg.BackupDir
 	serverBackupDir := filepath.Join(backupDir, cfg.ServerName)
 
@@ -176,9 +224,10 @@ func Run(cfg Config, log Logger) error {
 		log("SUCCESS", "仓库克隆成功")
 	}
 
-	// 2. 配置 git 用户信息
+	// 2. 配置 git 用户信息（用平台提供的 noreply 邮箱作为占位）
+	noreply := cfg.GitUser + "@users.noreply." + PlatformHosts[cfg.Platform].Host
 	_ = runGit(backupDir, log, "config", "user.name", cfg.GitUser)
-	_ = runGit(backupDir, log, "config", "user.email", cfg.GitUser+"@users.noreply.github.com")
+	_ = runGit(backupDir, log, "config", "user.email", noreply)
 
 	// 3. 清理并更新到最新
 	cleanup := func() {
@@ -238,7 +287,7 @@ func Run(cfg Config, log Logger) error {
 			_ = runGit(backupDir, log, "commit", "-m", commitMsg)
 		}
 		if err := runGit(backupDir, log, "push", "origin", cfg.Branch); err == nil {
-			log("SUCCESS", "备份完成！"+cfg.ServerName+" 的文件已成功推送到 GitHub 仓库")
+			log("SUCCESS", "备份完成！"+cfg.ServerName+" 的文件已成功推送到 "+PlatformDisplayName(cfg.Platform)+" 仓库")
 			return nil
 		}
 		if attempt == maxRetries {
