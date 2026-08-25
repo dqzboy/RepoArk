@@ -7,7 +7,7 @@ services:
       - "8080:8080"
     volumes:
       # SQLite 数据持久化到宿主机 ./data
-      - ./data:/app/data
+      - ./data:/app/data:Z
       # 把宿主机整棵目录树只读挂到容器 /host
       - /:/host:ro
     # 与上面的 /host 挂载配套：告诉程序宿主机根在容器内的位置

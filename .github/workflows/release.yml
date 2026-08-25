@@ -112,9 +112,9 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # tag 推送或 published release 时打 latest；workflow_dispatch 不打 latest 以免污染
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') }}
-            # 手动触发时打带分支名 + run 号的 dev 标签作为兜底，避免 tags 为空导致 push 报错
+            # Release 和手动构建都更新 latest，便于服务器直接拉取最新镜像。
+            type=raw,value=latest
+            # 手动触发时额外保留分支名 + run 号，便于定位具体构建。
             type=raw,value=dev-${{ github.ref_name }}-${{ github.run_number }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: Build and push

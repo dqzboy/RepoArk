@@ -54,7 +54,9 @@ docker pull ghcr.io/dqzboy/repoark:latest
 # 运行（数据持久化到宿主机 ./data）
 docker run -d --name repoark-server \
   -p 8080:8080 \
-  -v "$(pwd)/data:/app/data" \
+  -v "$(pwd)/data:/app/data:Z" \
+  -v /:/host:ro \
+  -e HOST_ROOT=/host \
   ghcr.io/dqzboy/repoark:latest
 ```
 
@@ -74,7 +76,7 @@ docker compose up -d
 docker compose down
 ```
 
-如需指定版本，编辑 `docker-compose.yml` 中的 `image` 标签（如 `:v1.0.0`）。数据同样持久化在宿主机 `./data` 目录。
+如需指定版本，编辑 `docker-compose.yml` 中的 `image` 标签（如 `:v1.0.0`）。数据持久化在宿主机 `./data` 目录。数据挂载使用 `:Z`，以兼容开启 SELinux 的 CentOS、Rocky Linux、AlmaLinux 等系统。
 
 #### 备份宿主机上的文件 / 文件夹（Docker 专属）
 
