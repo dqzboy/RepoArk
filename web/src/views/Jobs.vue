@@ -65,12 +65,19 @@ function platformIndex(code) {
   return String(index >= 0 ? index + 1 : 0).padStart(2, '0')
 }
 function statusText(s) {
-  return s === 'success' ? t('status.success') : s === 'failed' ? t('status.failed') : s === 'running' ? t('status.running') : t('status.unknown')
+  if (s === 'success') return t('status.success')
+  if (s === 'failed') return t('status.failed')
+  if (s === 'running') return t('status.running')
+  if (s === 'cancelling') return t('status.cancelling')
+  if (s === 'cancelled') return t('status.cancelled')
+  return t('status.unknown')
 }
 function pillClass(s) {
   if (s === 'success') return 'ops-pill--success'
   if (s === 'failed') return 'ops-pill--failed'
   if (s === 'running') return 'ops-pill--running'
+  if (s === 'cancelling') return 'ops-pill--cancelling'
+  if (s === 'cancelled') return 'ops-pill--cancelled'
   return 'ops-pill--idle'
 }
 

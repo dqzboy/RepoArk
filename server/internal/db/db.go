@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"git-backup-web/server/internal/config"
@@ -17,13 +18,23 @@ import (
 type Job struct {
 	ID         uint   `gorm:"primaryKey" json:"id"`
 	Platform   string `gorm:"size:16;index" json:"platform"` // github | gitcode | gitee（用于筛选展示）
-	Status     string `json:"status"`                       // running | success | failed
+	Status     string `gorm:"size:16;index" json:"status"`   // running | cancelling | cancelled | success | failed
+	Phase      string `gorm:"size:32" json:"phase"`          // 当前执行阶段，供前端展示实时进度
+	Progress   int    `json:"progress"`                      // 0-100 的总体进度
 	ServerName string `json:"server_name"`
 	Message    string `json:"message"`
 	Log        string `json:"log"`
 	StartedAt  string `json:"started_at"`
 	FinishedAt string `json:"finished_at"`
 }
+
+const (
+	JobStatusRunning    = "running"
+	JobStatusCancelling = "cancelling"
+	JobStatusCancelled  = "cancelled"
+	JobStatusSuccess    = "success"
+	JobStatusFailed     = "failed"
+)
 
 // User 后台用户（密码以 bcrypt 哈希存储）
 type User struct {
@@ -79,7 +90,53 @@ func Init(path string) (*gorm.DB, error) {
 	// 首启迁移：profiles 表为空时，自动创建 3 个平台的占位 Profile。
 	// 若旧 Config 中有 GitHub 凭证（Token/Repo 非默认值），把其克隆到 GitHub Profile。
 	migrateProfiles(database, c)
+	migrateProfileBackupDirs(database)
+	migrateProfileNodeNames(database)
 	return database, nil
+}
+
+// migrateProfileBackupDirs 把旧版共享目录或持久化工作区迁移到平台独立的临时任务目录。
+func migrateProfileBackupDirs(database *gorm.DB) {
+	var profiles []Profile
+	if err := database.Find(&profiles).Error; err != nil {
+		return
+	}
+	for _, profile := range profiles {
+		legacyPlatformDir := filepath.Join("/app/data/repos", profile.Platform)
+		if profile.BackupDir != "" && profile.BackupDir != "/data/backup" && profile.BackupDir != legacyPlatformDir {
+			continue
+		}
+		database.Model(&Profile{}).
+			Where("id = ?", profile.ID).
+			Update("backup_dir", DefaultBackupDir(profile.Platform))
+	}
+}
+
+// migrateProfileNodeNames 为旧版本中留空的“服务器标识”生成一个稳定的备份节点名称。
+// 所有平台共用同一个初始名称，并持久化在 SQLite 中，不依赖会随容器重建变化的 hostname。
+func migrateProfileNodeNames(database *gorm.DB) {
+	var profiles []Profile
+	if err := database.Order("id asc").Find(&profiles).Error; err != nil {
+		return
+	}
+	nodeName := ""
+	for _, profile := range profiles {
+		if ValidateNodeName(profile.ServerName) == nil {
+			nodeName = profile.ServerName
+			break
+		}
+	}
+	if nodeName == "" {
+		nodeName = NewNodeName()
+	}
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.ServerName) != "" {
+			continue
+		}
+		database.Model(&Profile{}).
+			Where("id = ?", profile.ID).
+			Update("server_name", nodeName)
+	}
 }
 
 // migrateProfiles 一次性把旧 Config 表的 GitHub 配置克隆为 GitHub Profile，

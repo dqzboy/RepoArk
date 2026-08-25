@@ -1,13 +1,18 @@
 package git
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +36,9 @@ type Config struct {
 
 // Logger 日志回调：level 取值 INFO/SUCCESS/WARNING/ERROR/GIT
 type Logger func(level, msg string)
+
+// ProgressFunc 上报任务当前阶段、总体百分比和用户可读说明。
+type ProgressFunc func(phase string, percent int, message string)
 
 // PlatformHost 不同平台的 git host 与 owner 段拼接规则
 type platformHost struct {
@@ -79,20 +87,6 @@ func BuildRepoURL(platform, owner, repo string) (string, error) {
 	return fmt.Sprintf("https://%s/%s/%s.git", ph.Host, escapedOwner, escapedRepo), nil
 }
 
-// DetectServerName 自动探测服务器标识（优先取第一个内网 IP）
-func DetectServerName() string {
-	if out, err := exec.Command("hostname", "-I").Output(); err == nil {
-		fields := strings.Fields(string(out))
-		if len(fields) > 0 {
-			return fields[0]
-		}
-	}
-	if h, err := os.Hostname(); err == nil {
-		return h
-	}
-	return "unknown-server"
-}
-
 // PlatformDisplayName 返回平台展示名（用于日志）
 func PlatformDisplayName(platform string) string {
 	switch platform {
@@ -107,30 +101,56 @@ func PlatformDisplayName(platform string) string {
 	}
 }
 
-func runGit(dir string, log Logger, args ...string) error {
-	return runGitEnv(dir, log, nil, args...)
+func report(progress ProgressFunc, phase string, percent int, message string) {
+	if progress != nil {
+		progress(phase, percent, message)
+	}
 }
 
-func runGitEnv(dir string, log Logger, env []string, args ...string) error {
-	cmd := exec.Command("git", args...)
+func runGitContext(ctx context.Context, dir string, log Logger, env []string, args ...string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 	err := cmd.Run()
-	if buf.Len() > 0 {
-		for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+	if output.Len() > 0 {
+		for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
 			if line != "" {
 				log("GIT", line)
 			}
 		}
 	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	return err
+}
+
+func gitOutputContext(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	return out, err
 }
 
 // credentialEnv 创建一次性 GIT_ASKPASS，用户名和 Token 只通过子进程环境传递。
@@ -154,112 +174,557 @@ func credentialEnv(user, token string) ([]string, func(), error) {
 	}, cleanup, nil
 }
 
-// hasStagedChanges git diff --cached --quiet 退出码非 0 表示存在暂存变更
-func hasStagedChanges(dir string) bool {
-	cmd := exec.Command("git", "-C", dir, "diff", "--cached", "--quiet")
-	return cmd.Run() != nil
+// ValidBranchName 校验 Git 分支名称。
+func ValidBranchName(branch string) bool {
+	return exec.Command("git", "check-ref-format", "--branch", branch).Run() == nil
 }
 
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
+type sourceSpec struct {
+	display  string
+	resolved string
+	dest     string
 }
 
-func copyDir(src, dst string) error {
-	info, err := os.Stat(src)
+type sourceStats struct {
+	files int64
+	bytes int64
+}
+
+func sourceDestination(source string) string {
+	base := filepath.Base(filepath.Clean(source))
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		return "root"
+	}
+	return base
+}
+
+func resolveSources(ctx context.Context, cfg Config, excluded os.FileInfo, log Logger) ([]sourceSpec, error) {
+	sources := make([]sourceSpec, 0, len(cfg.BackupSources))
+	for _, source := range cfg.BackupSources {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		resolved := source
+		if cfg.HostRoot != "" {
+			resolved = filepath.Join(cfg.HostRoot, source)
+		}
+		info, err := os.Lstat(resolved)
+		if err != nil {
+			log("WARNING", "源路径不存在或无法读取: "+source)
+			continue
+		}
+		if excluded != nil && os.SameFile(info, excluded) {
+			log("WARNING", "已跳过临时工作目录，不能把它自身作为备份源: "+source)
+			continue
+		}
+		sources = append(sources, sourceSpec{
+			display:  source,
+			resolved: resolved,
+			dest:     filepath.ToSlash(filepath.Join(cfg.ServerName, sourceDestination(source))),
+		})
+	}
+	if len(sources) == 0 {
+		return nil, fmt.Errorf("没有找到可备份的有效源路径，请检查路径和宿主机根路径映射")
+	}
+	return sources, nil
+}
+
+func walkSource(ctx context.Context, source sourceSpec, excluded os.FileInfo, visit func(string, string, os.FileInfo) error) error {
+	rootInfo, err := os.Lstat(source.resolved)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+	if !rootInfo.IsDir() {
+		return visit(source.resolved, source.dest, rootInfo)
+	}
+	return filepath.Walk(source.resolved, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if excluded != nil && info.IsDir() && os.SameFile(info, excluded) {
+			return filepath.SkipDir
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(source.resolved, path)
+		if err != nil {
+			return err
+		}
+		dest := filepath.ToSlash(filepath.Join(source.dest, rel))
+		return visit(path, dest, info)
+	})
+}
+
+func scanSources(ctx context.Context, sources []sourceSpec, excluded os.FileInfo, log Logger, progress ProgressFunc) (sourceStats, error) {
+	var stats sourceStats
+	lastReport := time.Now()
+	for _, source := range sources {
+		err := walkSource(ctx, source, excluded, func(path, _ string, info os.FileInfo) error {
+			switch {
+			case info.Mode().IsRegular():
+				stats.files++
+				stats.bytes += info.Size()
+			case info.Mode()&os.ModeSymlink != 0:
+				target, err := os.Readlink(path)
+				if err != nil {
+					return err
+				}
+				stats.files++
+				stats.bytes += int64(len(target))
+			default:
+				log("WARNING", "已跳过不受 Git 支持的特殊文件: "+path)
+			}
+			if time.Since(lastReport) >= 500*time.Millisecond {
+				report(progress, "scanning", 12, fmt.Sprintf("正在扫描备份源：已发现 %d 个文件，共 %s", stats.files, humanBytes(stats.bytes)))
+				lastReport = time.Now()
+			}
+			return nil
+		})
+		if err != nil {
+			return stats, fmt.Errorf("扫描备份源 %s 失败: %w", source.display, err)
+		}
+	}
+	if stats.files == 0 {
+		return stats, fmt.Errorf("备份源中没有可提交的普通文件或符号链接")
+	}
+	return stats, nil
+}
+
+var writingObjectsPattern = regexp.MustCompile(`Writing objects:\s+(\d+)%`)
+
+func splitGitProgress(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	for index, value := range data {
+		if value == '\n' || value == '\r' {
+			if index == 0 {
+				return 1, nil, nil
+			}
+			return index + 1, data[:index], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
+}
+
+func runGitPushContext(ctx context.Context, repoDir string, log Logger, env []string, branch string, progress ProgressFunc, attempt int) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	entries, err := os.ReadDir(src)
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", repoDir, "push", "--progress", "origin", "refs/heads/"+branch+":refs/heads/"+branch)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		return err
 	}
-	for _, e := range entries {
-		s := filepath.Join(src, e.Name())
-		d := filepath.Join(dst, e.Name())
-		if e.IsDir() {
-			if err := copyDir(s, d); err != nil {
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(stderr)
+	scanner.Split(splitGitProgress)
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		log("GIT", line)
+		match := writingObjectsPattern.FindStringSubmatch(line)
+		if len(match) == 2 {
+			written, parseErr := strconv.Atoi(match[1])
+			if parseErr == nil {
+				overall := 92 + written*7/100
+				if overall > 99 {
+					overall = 99
+				}
+				report(progress, "pushing", overall, fmt.Sprintf("正在第 %d 次推送：Git 对象已上传 %d%%", attempt, written))
+			}
+		}
+	}
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+	if stdout.Len() > 0 {
+		for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+			if line != "" {
+				log("GIT", line)
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if scanErr != nil {
+		return scanErr
+	}
+	return waitErr
+}
+
+type importTracker struct {
+	totalBytes int64
+	totalFiles int64
+	doneBytes  int64
+	doneFiles  int64
+	start      int
+	end        int
+	progress   ProgressFunc
+	lastReport time.Time
+}
+
+func (t *importTracker) advance(bytes int64, fileDone bool, path string) {
+	t.doneBytes += bytes
+	if fileDone {
+		t.doneFiles++
+	}
+	if !fileDone && time.Since(t.lastReport) < 250*time.Millisecond {
+		return
+	}
+	fraction := float64(t.doneFiles) / float64(t.totalFiles)
+	if t.totalBytes > 0 {
+		fraction = float64(t.doneBytes) / float64(t.totalBytes)
+	}
+	if fraction > 1 {
+		fraction = 1
+	}
+	percent := t.start + int(fraction*float64(t.end-t.start))
+	message := fmt.Sprintf("正在生成 Git 对象：%s（%d/%d 个文件）", path, t.doneFiles, t.totalFiles)
+	if t.totalBytes > 0 {
+		message = fmt.Sprintf("正在生成 Git 对象：%s（%s/%s）", path, humanBytes(t.doneBytes), humanBytes(t.totalBytes))
+	}
+	report(t.progress, "packing", percent, message)
+	t.lastReport = time.Now()
+}
+
+func humanBytes(value int64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%d B", value)
+	}
+	div, exp := int64(unit), 0
+	for n := value / unit; n >= unit && exp < 5; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(value)/float64(div), "KMGTPE"[exp])
+}
+
+func fastImportPath(path string) string {
+	path = filepath.ToSlash(path)
+	safe := path != ""
+	for i := 0; i < len(path); i++ {
+		if path[i] <= 0x20 || path[i] >= 0x7f || path[i] == '"' || path[i] == '\\' {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return path
+	}
+	var out strings.Builder
+	out.WriteByte('"')
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		switch c {
+		case '"', '\\':
+			out.WriteByte('\\')
+			out.WriteByte(c)
+		case '\n':
+			out.WriteString("\\n")
+		case '\r':
+			out.WriteString("\\r")
+		case '\t':
+			out.WriteString("\\t")
+		default:
+			if c < 0x20 || c >= 0x7f {
+				fmt.Fprintf(&out, "\\%03o", c)
+			} else {
+				out.WriteByte(c)
+			}
+		}
+	}
+	out.WriteByte('"')
+	return out.String()
+}
+
+func safeIdentity(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '<' || r == '>' {
+			return -1
+		}
+		return r
+	}, value)
+	if strings.TrimSpace(value) == "" {
+		return "RepoArk"
+	}
+	return strings.TrimSpace(value)
+}
+
+func timezoneOffset(now time.Time) string {
+	_, offset := now.Zone()
+	sign := "+"
+	if offset < 0 {
+		sign = "-"
+		offset = -offset
+	}
+	return fmt.Sprintf("%s%02d%02d", sign, offset/3600, offset%3600/60)
+}
+
+func writeRegularFile(ctx context.Context, writer *bufio.Writer, path string, size int64, tracker *importTracker, display string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	remaining := size
+	buffer := make([]byte, 1024*1024)
+	for remaining > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		chunk := int64(len(buffer))
+		if remaining < chunk {
+			chunk = remaining
+		}
+		n, readErr := io.ReadFull(file, buffer[:chunk])
+		if n > 0 {
+			if _, err := writer.Write(buffer[:n]); err != nil {
 				return err
 			}
-		} else {
-			if err := copyFile(s, d); err != nil {
-				return err
+			remaining -= int64(n)
+			tracker.advance(int64(n), false, display)
+		}
+		if readErr != nil {
+			return fmt.Errorf("文件在备份过程中发生变化: %w", readErr)
+		}
+	}
+	tracker.advance(0, true, display)
+	return nil
+}
+
+func importSnapshot(ctx context.Context, repoDir string, cfg Config, sources []sourceSpec, excluded os.FileInfo, stats sourceStats, hasBase bool, progress ProgressFunc, startPercent, endPercent int) error {
+	cmd := exec.CommandContext(ctx, "git", "--git-dir", repoDir, "fast-import", "--quiet", "--force")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	tracker := &importTracker{
+		totalBytes: stats.bytes,
+		totalFiles: stats.files,
+		start:      startPercent,
+		end:        endPercent,
+		progress:   progress,
+	}
+	writer := bufio.NewWriterSize(stdin, 1024*1024)
+	now := time.Now()
+	branchRef := "refs/heads/" + cfg.Branch
+	baseRef := "refs/remotes/origin/" + cfg.Branch
+	name := safeIdentity(cfg.GitUser)
+	email := name + "@users.noreply." + PlatformHosts[cfg.Platform].Host
+	commitMessage := fmt.Sprintf("Backup update: %s - %s", cfg.ServerName, now.Format("2006-01-02 15:04:05"))
+
+	writeErr := func() error {
+		fmt.Fprintf(writer, "commit %s\n", branchRef)
+		fmt.Fprintf(writer, "author %s <%s> %d %s\n", name, email, now.Unix(), timezoneOffset(now))
+		fmt.Fprintf(writer, "committer %s <%s> %d %s\n", name, email, now.Unix(), timezoneOffset(now))
+		fmt.Fprintf(writer, "data %d\n%s\n", len(commitMessage), commitMessage)
+		if hasBase {
+			fmt.Fprintf(writer, "from %s\n", baseRef)
+		}
+		fmt.Fprintf(writer, "D %s\n", fastImportPath(cfg.ServerName))
+
+		for _, source := range sources {
+			err := walkSource(ctx, source, excluded, func(path, dest string, info os.FileInfo) error {
+				mode := "100644"
+				var symlinkData []byte
+				switch {
+				case info.Mode().IsRegular():
+					if info.Mode().Perm()&0o111 != 0 {
+						mode = "100755"
+					}
+				case info.Mode()&os.ModeSymlink != 0:
+					mode = "120000"
+					target, err := os.Readlink(path)
+					if err != nil {
+						return err
+					}
+					symlinkData = []byte(target)
+				default:
+					return nil
+				}
+				fmt.Fprintf(writer, "M %s inline %s\n", mode, fastImportPath(dest))
+				if symlinkData != nil {
+					fmt.Fprintf(writer, "data %d\n", len(symlinkData))
+					if _, err := writer.Write(symlinkData); err != nil {
+						return err
+					}
+					tracker.advance(int64(len(symlinkData)), true, dest)
+				} else {
+					fmt.Fprintf(writer, "data %d\n", info.Size())
+					if err := writeRegularFile(ctx, writer, path, info.Size(), tracker, dest); err != nil {
+						return err
+					}
+				}
+				return writer.WriteByte('\n')
+			})
+			if err != nil {
+				return fmt.Errorf("读取备份源 %s 失败: %w", source.display, err)
 			}
+		}
+		report(progress, "committing", endPercent, "正在创建备份提交")
+		_, err := writer.WriteString("done\n")
+		return err
+	}()
+	flushErr := writer.Flush()
+	closeErr := stdin.Close()
+	waitErr := cmd.Wait()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	for _, candidate := range []error{writeErr, flushErr, closeErr, waitErr} {
+		if candidate != nil {
+			if output.Len() > 0 {
+				return fmt.Errorf("生成 Git 提交失败: %w: %s", candidate, strings.TrimSpace(output.String()))
+			}
+			return fmt.Errorf("生成 Git 提交失败: %w", candidate)
 		}
 	}
 	return nil
 }
 
-func copyPath(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return copyDir(src, dst)
-	}
-	return copyFile(src, dst)
+type remoteState struct {
+	hasTarget      bool
+	hasAny         bool
+	supportsFilter bool
 }
 
-func copySources(sources []string, hostRoot, serverBackupDir string, log Logger) {
-	for _, src := range sources {
-		src = strings.TrimSpace(src)
-		if src == "" {
+func inspectRemote(ctx context.Context, repoDir, branch string, authEnv []string) (remoteState, error) {
+	probeEnv := append([]string{}, authEnv...)
+	probeEnv = append(probeEnv, "GIT_TRACE_PACKET=1", "LC_ALL=C", "LANG=C")
+	out, err := gitOutputContext(ctx, "", probeEnv, "-c", "protocol.version=2", "--git-dir", repoDir, "ls-remote", "--heads", "origin")
+	if err != nil {
+		return remoteState{}, fmt.Errorf("读取远程仓库分支失败: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	target := "refs/heads/" + branch
+	state := remoteState{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.Contains(line, "fetch=") && strings.Contains(line, " filter") {
+			state.supportsFilter = true
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !strings.HasPrefix(fields[1], "refs/heads/") {
 			continue
 		}
-		// Docker 部署时把宿主机根挂到容器的 hostRoot（如 /host），此处自动拼成容器内真实路径
-		resolved := src
-		if hostRoot != "" {
-			resolved = filepath.Join(hostRoot, src)
+		state.hasAny = true
+		if fields[1] == target {
+			state.hasTarget = true
 		}
-		if _, err := os.Stat(resolved); err == nil {
-			dst := filepath.Join(serverBackupDir, filepath.Base(src))
-			if err := copyPath(resolved, dst); err != nil {
-				log("WARNING", fmt.Sprintf("复制失败: %s -> %v", src, err))
-			} else {
-				log("INFO", "成功复制: "+src)
-			}
-		} else {
-			log("WARNING", "源路径不存在: "+src)
-		}
+	}
+	return state, nil
+}
+
+// fetchRemoteMetadata 只下载远端 commit/tree 元数据，不下载任何历史文件 blob。
+// 先由 inspectRemote 验证服务端支持 partial clone filter，避免服务端忽略参数后退化为完整下载。
+func fetchRemoteMetadata(ctx context.Context, repoDir, branch string, authEnv []string, log Logger) error {
+	fetchEnv := append([]string{}, authEnv...)
+	fetchEnv = append(fetchEnv, "LC_ALL=C", "LANG=C")
+	return runGitContext(
+		ctx,
+		"",
+		log,
+		fetchEnv,
+		"-c", "protocol.version=2",
+		"--git-dir", repoDir,
+		"fetch",
+		"--no-tags",
+		"--depth=1",
+		"--filter=blob:none",
+		"origin",
+		"+refs/heads/"+branch+":refs/remotes/origin/"+branch,
+	)
+}
+
+func sameTree(ctx context.Context, repoDir, branch string) (bool, error) {
+	local, err := gitOutputContext(ctx, "", nil, "--git-dir", repoDir, "rev-parse", "refs/heads/"+branch+"^{tree}")
+	if err != nil {
+		return false, err
+	}
+	remote, err := gitOutputContext(ctx, "", nil, "--git-dir", repoDir, "rev-parse", "refs/remotes/origin/"+branch+"^{tree}")
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(local)) == strings.TrimSpace(string(remote)), nil
+}
+
+func waitContext(ctx context.Context, duration time.Duration) error {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
-// Run 执行一次完整备份，逻辑等价于原 git_sync_backup.sh
+// Run 保留同步调用入口，测试和其他调用方无需关心取消与进度。
 func Run(cfg Config, log Logger) error {
+	return RunContext(context.Background(), cfg, log, nil)
+}
+
+// RunContext 直接把源文件流式写入临时 Git 对象库并推送，不再创建一份完整工作区副本。
+func RunContext(ctx context.Context, cfg Config, log Logger, progress ProgressFunc) error {
+	report(progress, "preparing", 2, "正在检查备份配置")
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if cfg.Platform == "" {
 		cfg.Platform = db.PlatformGitHub
 	}
-	if cfg.ServerName == "" {
-		cfg.ServerName = DetectServerName()
+	cfg.ServerName = strings.TrimSpace(cfg.ServerName)
+	if err := db.ValidateNodeName(cfg.ServerName); err != nil {
+		return err
 	}
 	if cfg.Branch == "" {
 		cfg.Branch = "main"
 	}
-	if cfg.BackupDir == "" {
-		return fmt.Errorf("备份目录未配置")
+	if !ValidBranchName(cfg.Branch) {
+		return fmt.Errorf("分支名称无效: %s", cfg.Branch)
+	}
+	if strings.TrimSpace(cfg.BackupDir) == "" {
+		return fmt.Errorf("临时工作目录未配置")
 	}
 	if cfg.GitUser == "" || cfg.GitToken == "" || cfg.RepoName == "" {
 		return fmt.Errorf("%s 仓库信息不完整（需要 user/token/repo）", PlatformDisplayName(cfg.Platform))
 	}
+	validSources := make([]string, 0, len(cfg.BackupSources))
+	for _, source := range cfg.BackupSources {
+		if source = strings.TrimSpace(source); source != "" {
+			validSources = append(validSources, source)
+		}
+	}
+	if len(validSources) == 0 {
+		return fmt.Errorf("未配置备份源路径；临时工作目录不是备份源路径")
+	}
+	cfg.BackupSources = validSources
 
 	repoURL := strings.TrimSpace(cfg.RemoteURL)
 	if repoURL == "" {
@@ -269,107 +734,113 @@ func Run(cfg Config, log Logger) error {
 			return err
 		}
 	}
+	if err := os.MkdirAll(cfg.BackupDir, 0o755); err != nil {
+		return fmt.Errorf("创建临时工作目录失败: %w", err)
+	}
+	excluded, _ := os.Stat(cfg.BackupDir)
+	tempDir, err := os.MkdirTemp(cfg.BackupDir, ".repoark-run-")
+	if err != nil {
+		return fmt.Errorf("创建临时任务目录失败: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+	repoDir := filepath.Join(tempDir, "repo.git")
+
+	report(progress, "preparing", 5, "正在初始化临时 Git 对象库")
+	if err := runGitContext(ctx, "", log, nil, "init", "--bare", repoDir); err != nil {
+		return fmt.Errorf("初始化临时 Git 仓库失败: %w", err)
+	}
+	if err := runGitContext(ctx, "", log, nil, "--git-dir", repoDir, "remote", "add", "origin", repoURL); err != nil {
+		return fmt.Errorf("配置远程仓库失败: %w", err)
+	}
 	authEnv, cleanupCredentials, err := credentialEnv(cfg.GitUser, cfg.GitToken)
 	if err != nil {
 		return fmt.Errorf("初始化 Git 凭据失败: %w", err)
 	}
 	defer cleanupCredentials()
-	runRemoteGit := func(dir string, args ...string) error {
-		return runGitEnv(dir, log, authEnv, args...)
-	}
-	backupDir := cfg.BackupDir
-	serverBackupDir := filepath.Join(backupDir, cfg.ServerName)
 
-	// 1. 克隆仓库（如果不存在）
-	if _, err := os.Stat(filepath.Join(backupDir, ".git")); err != nil {
-		log("INFO", "备份目录不是 git 仓库，正在克隆...")
-		if err := runRemoteGit("", "clone", "-b", cfg.Branch, repoURL, backupDir); err != nil {
-			return fmt.Errorf("克隆仓库失败: %w", err)
-		}
-		log("SUCCESS", "仓库克隆成功")
+	report(progress, "scanning", 10, "正在扫描备份源文件")
+	sources, err := resolveSources(ctx, cfg, excluded, log)
+	if err != nil {
+		return err
 	}
-	// 兼容旧版本已把 Token 写入 origin URL 的仓库，并同步修复 GitCode 旧域名。
-	if err := runGit(backupDir, log, "remote", "set-url", "origin", repoURL); err != nil {
-		return fmt.Errorf("更新远程仓库地址失败: %w", err)
+	stats, err := scanSources(ctx, sources, excluded, log, progress)
+	if err != nil {
+		return err
 	}
+	log("INFO", fmt.Sprintf("扫描完成：%d 个文件，共 %s；将直接生成 Git 对象，不创建完整文件副本", stats.files, humanBytes(stats.bytes)))
+	report(progress, "connecting", 18, "正在连接远程仓库")
 
-	// 2. 配置 git 用户信息（用平台提供的 noreply 邮箱作为占位）
-	noreply := cfg.GitUser + "@users.noreply." + PlatformHosts[cfg.Platform].Host
-	_ = runGit(backupDir, log, "config", "user.name", cfg.GitUser)
-	_ = runGit(backupDir, log, "config", "user.email", noreply)
-
-	// 3. 清理并更新到最新
-	cleanup := func() {
-		_ = runGit(backupDir, log, "reset", "--hard")
-		_ = runGit(backupDir, log, "clean", "-fd")
-	}
-	cleanup()
-	_ = runGit(backupDir, log, "config", "core.sparseCheckout", "false")
-	_ = os.Remove(filepath.Join(backupDir, ".git", "info", "sparse-checkout"))
-	if err := runRemoteGit(backupDir, "fetch", "origin"); err != nil {
-		return fmt.Errorf("拉取远程仓库失败: %w", err)
-	}
-	if err := runGit(backupDir, log, "reset", "--hard", "origin/"+cfg.Branch); err != nil {
-		return fmt.Errorf("切换到远程分支 %s 失败: %w", cfg.Branch, err)
-	}
-	log("SUCCESS", "本地仓库已更新到最新状态")
-
-	// 4. 清理当前服务器的旧备份目录
-	if err := os.MkdirAll(serverBackupDir, 0o755); err != nil {
-		return fmt.Errorf("创建服务器备份目录失败: %w", err)
-	}
-	entries, _ := os.ReadDir(serverBackupDir)
-	for _, e := range entries {
-		_ = os.RemoveAll(filepath.Join(serverBackupDir, e.Name()))
-	}
-	log("INFO", "已清理当前服务器的旧备份文件")
-
-	// 5. 拷贝新文件
-	copySources(cfg.BackupSources, cfg.HostRoot, serverBackupDir, log)
-
-	// 6. 检查变更并提交
-	_ = runGit(backupDir, log, "add", cfg.ServerName)
-	if !hasStagedChanges(backupDir) {
-		log("INFO", "没有发现新的更改，无需备份")
-		return nil
-	}
-
-	commitMsg := fmt.Sprintf("Backup update: %s - %s", cfg.ServerName, time.Now().Format("2006-01-02 15:04:05"))
-	if err := runGit(backupDir, log, "commit", "-m", commitMsg); err != nil {
-		return fmt.Errorf("提交失败: %w", err)
-	}
-
-	// 7. 推送（带重试与变基）
 	const maxRetries = 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		log("INFO", fmt.Sprintf("第 %d 次尝试推送到远程仓库...", attempt))
-		if err := runRemoteGit(backupDir, "fetch", "origin"); err != nil {
-			log("WARNING", "拉取远程更新失败: "+err.Error())
+		if err := ctx.Err(); err != nil {
+			return err
 		}
-		if err := runGit(backupDir, log, "rebase", "origin/"+cfg.Branch); err != nil {
-			log("WARNING", "变基失败，正在中止并重置...")
-			_ = runGit(backupDir, log, "rebase", "--abort")
-			cleanup()
-			_ = runRemoteGit(backupDir, "fetch", "origin")
-			_ = runGit(backupDir, log, "reset", "--hard", "origin/"+cfg.Branch)
-			// 重新应用本地更改
-			entries, _ := os.ReadDir(serverBackupDir)
-			for _, e := range entries {
-				_ = os.RemoveAll(filepath.Join(serverBackupDir, e.Name()))
+		state, err := inspectRemote(ctx, repoDir, cfg.Branch, authEnv)
+		if err != nil {
+			return err
+		}
+		if !state.hasTarget && state.hasAny {
+			return fmt.Errorf("远程仓库不存在分支 %s，请检查分支配置", cfg.Branch)
+		}
+		if state.hasTarget {
+			if !state.supportsFilter {
+				return fmt.Errorf("远程 Git 服务不支持仅获取仓库元数据（blob:none），已停止备份以避免下载远端备份文件")
 			}
-			copySources(cfg.BackupSources, cfg.HostRoot, serverBackupDir, log)
-			_ = runGit(backupDir, log, "add", cfg.ServerName)
-			_ = runGit(backupDir, log, "commit", "-m", commitMsg)
+			percent := 25
+			if attempt > 1 {
+				percent = 90
+			}
+			report(progress, "fetching", percent, "正在获取远程提交和目录树元数据（不下载文件内容）")
+			if err := fetchRemoteMetadata(ctx, repoDir, cfg.Branch, authEnv, log); err != nil {
+				return fmt.Errorf("获取远程仓库元数据失败: %w", err)
+			}
+		} else {
+			log("INFO", "远程仓库为空，将创建初始分支 "+cfg.Branch)
 		}
-		if err := runRemoteGit(backupDir, "push", "origin", cfg.Branch); err == nil {
+
+		startPercent, endPercent := 35, 75
+		if attempt > 1 {
+			startPercent, endPercent = 91, 96
+		}
+		report(progress, "packing", startPercent, "正在从源目录直接生成 Git 对象")
+		if err := importSnapshot(ctx, repoDir, cfg, sources, excluded, stats, state.hasTarget, progress, startPercent, endPercent); err != nil {
+			return err
+		}
+		if state.hasTarget {
+			equal, err := sameTree(ctx, repoDir, cfg.Branch)
+			if err != nil {
+				return fmt.Errorf("检查仓库变更失败: %w", err)
+			}
+			if equal {
+				log("INFO", "没有发现新的更改，无需推送")
+				report(progress, "completed", 100, "备份内容没有变化")
+				return nil
+			}
+		}
+
+		pushPercent := 90 + attempt*2
+		if pushPercent > 98 {
+			pushPercent = 98
+		}
+		report(progress, "pushing", pushPercent, fmt.Sprintf("正在第 %d 次推送提交到 %s", attempt, PlatformDisplayName(cfg.Platform)))
+		log("INFO", fmt.Sprintf("第 %d 次尝试推送到远程仓库...", attempt))
+		err = runGitPushContext(ctx, repoDir, log, authEnv, cfg.Branch, progress, attempt)
+		if err == nil {
 			log("SUCCESS", "备份完成！"+cfg.ServerName+" 的文件已成功推送到 "+PlatformDisplayName(cfg.Platform)+" 仓库")
+			report(progress, "completed", 100, "备份已成功推送到远程仓库")
 			return nil
+		}
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			return context.Canceled
 		}
 		if attempt == maxRetries {
 			return fmt.Errorf("推送失败次数达到上限，请检查仓库状态")
 		}
-		log("WARNING", "推送失败，5 秒后重试...")
-		time.Sleep(5 * time.Second)
+		log("WARNING", "推送失败，5 秒后重新同步远程状态并重试...")
+		report(progress, "retrying", pushPercent, "远程仓库发生变化，等待重新同步")
+		if err := waitContext(ctx, 5*time.Second); err != nil {
+			return err
+		}
 	}
 	return fmt.Errorf("推送失败")
 }

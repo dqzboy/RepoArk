@@ -2,8 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"git-backup-web/server/internal/db"
+	backupgit "git-backup-web/server/internal/git"
 
 	"github.com/gin-gonic/gin"
 	"github.com/robfig/cron/v3"
@@ -45,6 +47,30 @@ func GetProfile(database *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// GetProfileToken 在用户主动点击“显示 Token”时返回完整 Token。
+// 明文凭据只允许管理员读取，普通配置接口仍只返回掩码。
+func GetProfileToken(database *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		me, ok := currentUser(c, database)
+		if !ok || me.Role != "admin" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "仅管理员可查看完整 Token"})
+			return
+		}
+		platform := c.Param("platform")
+		if !validPlatform(platform) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "不支持的平台: " + platform})
+			return
+		}
+		var p db.Profile
+		if err := database.Where("platform = ?", platform).First(&p).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "平台配置不存在"})
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{"git_token": p.GitToken})
+	}
+}
+
 // UpdateProfile 更新指定平台的 Profile
 func UpdateProfile(database *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -54,17 +80,17 @@ func UpdateProfile(database *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var body struct {
-			Enabled          bool     `json:"enabled"`
-			GitUser          string   `json:"git_user"`
-			GitToken         string   `json:"git_token"`
-			RepoName         string   `json:"repo_name"`
-			Branch           string   `json:"branch"`
-			BackupDir        string   `json:"backup_dir"`
-			ServerName       string   `json:"server_name"`
-			BackupSources    []string `json:"backup_sources"`
-			HostRoot         string   `json:"host_root"`
-			ScheduleEnabled  bool     `json:"schedule_enabled"`
-			ScheduleCron     string   `json:"schedule_cron"`
+			Enabled         bool     `json:"enabled"`
+			GitUser         string   `json:"git_user"`
+			GitToken        string   `json:"git_token"`
+			RepoName        string   `json:"repo_name"`
+			Branch          string   `json:"branch"`
+			BackupDir       string   `json:"backup_dir"`
+			ServerName      string   `json:"server_name"`
+			BackupSources   []string `json:"backup_sources"`
+			HostRoot        string   `json:"host_root"`
+			ScheduleEnabled bool     `json:"schedule_enabled"`
+			ScheduleCron    string   `json:"schedule_cron"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "参数错误"})
@@ -77,6 +103,19 @@ func UpdateProfile(database *gorm.DB) gin.HandlerFunc {
 				return
 			}
 		}
+		body.ServerName = strings.TrimSpace(body.ServerName)
+		if err := db.ValidateNodeName(body.ServerName); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		body.Branch = strings.TrimSpace(body.Branch)
+		if body.Branch == "" {
+			body.Branch = "main"
+		}
+		if !backupgit.ValidBranchName(body.Branch) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "分支名称无效: " + body.Branch})
+			return
+		}
 		var p db.Profile
 		if err := database.Where("platform = ?", platform).First(&p).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "平台配置不存在"})
@@ -88,9 +127,7 @@ func UpdateProfile(database *gorm.DB) gin.HandlerFunc {
 			p.GitToken = body.GitToken
 		}
 		p.RepoName = body.RepoName
-		if body.Branch != "" {
-			p.Branch = body.Branch
-		}
+		p.Branch = body.Branch
 		p.BackupDir = body.BackupDir
 		p.ServerName = body.ServerName
 		_ = p.SetSources(body.BackupSources)
@@ -117,6 +154,7 @@ func profileResponse(p db.Profile, sources []string) gin.H {
 		"enabled":           p.Enabled,
 		"git_user":          p.GitUser,
 		"git_token":         tokenMask,
+		"token_configured":  p.GitToken != "",
 		"repo_name":         p.RepoName,
 		"branch":            p.Branch,
 		"backup_dir":        p.BackupDir,

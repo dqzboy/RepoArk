@@ -14,15 +14,15 @@ type Config struct {
 	Branch        string `json:"branch"`
 	BackupDir     string `json:"backup_dir"`
 	ServerName    string `json:"server_name"`
-	BackupSources string `json:"-"` // 以 JSON 数组字符串存储
+	BackupSources string `json:"-"`         // 以 JSON 数组字符串存储
 	HostRoot      string `json:"host_root"` // Docker 部署时宿主机根在容器内的挂载点（如 /host）
 	AdminUser     string `json:"admin_user"`
 	AdminPass     string `json:"admin_pass"`
 	JWTSecret     string `json:"-"`
 
 	// 定时备份
-	ScheduleEnabled bool   `json:"schedule_enabled"` // 是否开启定时备份
-	ScheduleCron    string `json:"schedule_cron"`    // 标准 5 段 cron 表达式（分 时 日 月 周）
+	ScheduleEnabled bool   `json:"schedule_enabled"`  // 是否开启定时备份
+	ScheduleCron    string `json:"schedule_cron"`     // 标准 5 段 cron 表达式（分 时 日 月 周）
 	ScheduleLastRun string `json:"schedule_last_run"` // 上次自动备份触发时间（只读展示）
 }
 
@@ -30,13 +30,13 @@ type Config struct {
 func Default() Config {
 	sources, _ := json.Marshal([]string{"/etc/passwd", "/etc/nginx/conf.d"})
 	return Config{
-		GitUser:       "your_username",
-		GitToken:      "",
-		RepoName:      "your_repository",
-		Branch:        "main",
-		BackupDir:     "/data/backup",
-		ServerName:    "",
-		BackupSources: string(sources),
+		GitUser:         "your_username",
+		GitToken:        "",
+		RepoName:        "your_repository",
+		Branch:          "main",
+		BackupDir:       "/app/data/tmp/github",
+		ServerName:      "",
+		BackupSources:   string(sources),
 		AdminUser:       "admin",
 		AdminPass:       "admin",
 		JWTSecret:       "git-backup-change-me",

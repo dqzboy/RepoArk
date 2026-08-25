@@ -26,8 +26,8 @@ func main() {
 	scheduler := backup.NewScheduler(database, mgr)
 	scheduler.Start()
 
-	r := gin.Default()
-	r.Use(corsMiddleware())
+	r := gin.New()
+	r.Use(middleware.AccessLogger(), gin.Recovery(), corsMiddleware())
 
 	api := r.Group("/api")
 	{
@@ -37,10 +37,12 @@ func main() {
 		{
 			auth.GET("/platforms", handler.ListPlatforms(database))
 			auth.GET("/platforms/:platform", handler.GetProfile(database))
+			auth.GET("/platforms/:platform/token", handler.GetProfileToken(database))
 			auth.PUT("/platforms/:platform", handler.UpdateProfile(database))
 			auth.GET("/jobs", handler.ListJobs(database))
 			auth.GET("/jobs/:id", handler.GetJob(database))
 			auth.POST("/backup/run/:platform", handler.RunBackup(mgr))
+			auth.POST("/backup/cancel/:id", handler.CancelBackup(mgr))
 			auth.GET("/users", handler.ListUsers(database))
 			auth.POST("/users", handler.CreateUser(database))
 			auth.PUT("/users/:id", handler.UpdateUser(database))

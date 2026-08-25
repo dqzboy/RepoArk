@@ -67,11 +67,12 @@
       <aside class="status-panel ops-panel">
         <div class="panel-heading"><div><span class="eyebrow">{{ t('dashboard.jobQuality') }}</span><h3>{{ t('dashboard.distTitle') }}</h3></div></div>
         <div class="status-panel__rate"><strong>{{ successRate }}%</strong><span>{{ t('dashboard.successRate') }}</span></div>
-        <div class="quality-bar" :aria-label="t('dashboard.distributionSummary', statusCounts)"><i class="is-success" :style="{ width: `${percentOf(statusCounts.success)}%` }" /><i class="is-failed" :style="{ width: `${percentOf(statusCounts.failed)}%` }" /><i class="is-running" :style="{ width: `${percentOf(statusCounts.running)}%` }" /></div>
+        <div class="quality-bar" :aria-label="t('dashboard.distributionSummary', statusCounts)"><i class="is-success" :style="{ width: `${percentOf(statusCounts.success)}%` }" /><i class="is-failed" :style="{ width: `${percentOf(statusCounts.failed)}%` }" /><i class="is-running" :style="{ width: `${percentOf(statusCounts.running)}%` }" /><i class="is-cancelled" :style="{ width: `${percentOf(statusCounts.cancelled)}%` }" /></div>
         <dl class="quality-list">
           <div><dt><i class="is-success" />{{ t('status.success') }}</dt><dd>{{ statusCounts.success }}</dd></div>
           <div><dt><i class="is-failed" />{{ t('status.failed') }}</dt><dd>{{ statusCounts.failed }}</dd></div>
           <div><dt><i class="is-running" />{{ t('status.running') }}</dt><dd>{{ statusCounts.running }}</dd></div>
+          <div><dt><i class="is-cancelled" />{{ t('status.cancelled') }}</dt><dd>{{ statusCounts.cancelled }}</dd></div>
         </dl>
         <div class="status-panel__note"><el-icon><Lock /></el-icon><span>{{ t('dashboard.credentialNote') }}</span></div>
       </aside>
@@ -98,9 +99,13 @@ const platformCards = computed(() => PLATFORMS.map((meta) => {
 }))
 const enabledCount = computed(() => profiles.value.filter((item) => item.enabled).length)
 const statusCounts = computed(() => jobs.value.reduce((count, job) => {
+  if (job.status === 'cancelling') {
+    count.running += 1
+    return count
+  }
   if (Object.hasOwn(count, job.status)) count[job.status] += 1
   return count
-}, { success: 0, failed: 0, running: 0 }))
+}, { success: 0, failed: 0, running: 0, cancelled: 0 }))
 const completedCount = computed(() => statusCounts.value.success + statusCounts.value.failed)
 const successRate = computed(() => completedCount.value ? Math.round((statusCounts.value.success / completedCount.value) * 100) : 0)
 const healthScore = computed(() => Math.round((enabledCount.value / 3) * 45 + (successRate.value / 100) * 55))
@@ -114,7 +119,14 @@ const metrics = computed(() => [
 ])
 
 function platformName(code) { return platformLabel(code || 'github') }
-function statusText(status) { return status === 'success' ? t('status.success') : status === 'failed' ? t('status.failed') : status === 'running' ? t('status.running') : t('status.unknown') }
+function statusText(status) {
+  if (status === 'success') return t('status.success')
+  if (status === 'failed') return t('status.failed')
+  if (status === 'running') return t('status.running')
+  if (status === 'cancelling') return t('status.cancelling')
+  if (status === 'cancelled') return t('status.cancelled')
+  return t('status.unknown')
+}
 function statusClass(status) { return `is-${status || 'idle'}` }
 function percentOf(value) { return jobs.value.length ? (value / jobs.value.length) * 100 : 0 }
 function setPlatform(code) { store.platform = code }
@@ -176,7 +188,7 @@ onMounted(async () => {
 .platform-card__facts dd { margin: 8px 0 0; overflow: hidden; color: var(--text); font: 600 12px/1 var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
 .platform-card__last { padding: 15px 0; color: var(--text-faint); font-size: 11px; }
 .status-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border-radius: 5px; font: 650 10px/1 var(--font-display); }
-.is-success { color: var(--success); background: var(--success-dim); }.is-failed { color: var(--danger); background: var(--danger-dim); }.is-running { color: var(--warn); background: var(--warn-dim); }.is-idle { color: var(--text-faint); background: var(--surface-muted); }
+.is-success { color: var(--success); background: var(--success-dim); }.is-failed { color: var(--danger); background: var(--danger-dim); }.is-running, .is-cancelling { color: var(--warn); background: var(--warn-dim); }.is-cancelled { color: var(--text-faint); background: var(--surface-muted); }.is-idle { color: var(--text-faint); background: var(--surface-muted); }
 .platform-card__actions { justify-content: flex-start; }
 .platform-card__actions a { min-height: 44px; display: inline-flex; align-items: center; color: var(--text); font: 650 11px/1 var(--font-display); text-decoration: none; }
 .platform-card__actions a:first-child { color: var(--accent-strong); }
