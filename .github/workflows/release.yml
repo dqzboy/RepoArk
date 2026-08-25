@@ -1,12 +1,9 @@
 name: Release
 
 # 触发条件：
-#   - 推送 tag（v 开头，如 v1.0.0）→ 构建并发布
+#   - 在 GitHub 页面发布 Release → 构建镜像与二进制并上传附件
 #   - 手动触发 workflow_dispatch → 仅构建镜像与二进制（不创建 Release）
 on:
-  push:
-    tags:
-      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
