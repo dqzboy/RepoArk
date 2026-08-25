@@ -1,4 +1,4 @@
-# BACK_SYNC_GITHUB
+# RepoArk
 在服务器中运行服务，在WEB管理界面设置备份文件和定时任务，实现定时备份数据到GitHub仓库
 
 
@@ -41,13 +41,13 @@ cd web && npm install && npm run dev
 
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/dqzboy/back_sync_github:latest
+docker pull ghcr.io/dqzboy/repoark:latest
 
 # 运行（数据持久化到宿主机 ./data）
-docker run -d --name git-backup-web \
+docker run -d --name repoark-server \
   -p 8080:8080 \
   -v "$(pwd)/data:/app/data" \
-  ghcr.io/dqzboy/back_sync_github:latest
+  ghcr.io/dqzboy/repoark:latest
 ```
 
 启动后访问 http://localhost:8080 。默认管理员账号：**admin / admin**。
@@ -136,20 +136,20 @@ docker compose down
   <tbody>
     <tr>
       <td width="50%" align="left">
-        <a href="https://dqzboy.github.io/proxyui/racknerd" target="_blank">提供高性价比的海外VPS，支持多种操作系统，适合搭建Docker代理服务。</a>
+        <a href="https://docker-proxy-desc.vercel.app/racknerd.html" target="_blank">提供高性价比的海外VPS，支持多种操作系统，适合搭建Docker代理服务。</a>
       </td>
       <td width="50%" align="center">
-        <a href="https://dqzboy.github.io/proxyui/racknerd" target="_blank">
+        <a href="https://docker-proxy-desc.vercel.app/racknerd.html" target="_blank">
           <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/Image_2025-07-07_16-14-49.png?raw=true" alt="RackNerd" width="200" height="150">
         </a>
       </td>
     </tr>
     <tr>
       <td width="50%" align="left">
-        <a href="https://dqzboy.github.io/proxyui/CloudCone" target="_blank">CloudCone 提供灵活的云服务器方案，支持按需付费，适合个人和企业用户。</a>
+        <a href="https://docker-proxy-desc.vercel.app/cloudcone.html" target="_blank">CloudCone 提供灵活的云服务器方案，支持按需付费，适合个人和企业用户。</a>
       </td>
       <td width="50%" align="center">
-        <a href="https://dqzboy.github.io/proxyui/CloudCone" target="_blank">
+        <a href="https://docker-proxy-desc.vercel.app/cloudcone.html" target="_blank">
           <img src="https://cdn.jsdelivr.net/gh/dqzboy/Images/dqzboy-proxy/111.png?raw=true" alt="CloudCone" width="200" height="150">
         </a>
       </td>

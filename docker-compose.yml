@@ -1,7 +1,7 @@
 services:
-  git-backup-web:
-    image: ghcr.io/dqzboy/back_sync_github:latest
-    container_name: git-backup-web
+  repoark-server:
+    image: ghcr.io/dqzboy/repoark:latest
+    container_name: repoark-server
     restart: unless-stopped
     ports:
       - "8080:8080"
